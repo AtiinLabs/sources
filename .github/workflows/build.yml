@@ -18,9 +18,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Write access is for the deploy step, which only runs on pushes to main.
     permissions:
-      contents: write
+      contents: read
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -57,14 +56,9 @@ jobs:
         run: |
           set -euo pipefail
           for plugin in plugins/*/; do
-            plugin="${plugin%/}"
-            if grep -rqs --include='*.rs' '#\[test\]' "$plugin/src" "$plugin/tests"; then
-              echo "::group::cargo test $plugin"
-              (cd "$plugin" && cargo test --locked)
-              echo "::endgroup::"
-            else
-              echo "No tests in $plugin, skipping."
-            fi
+            echo "::group::cargo test $plugin"
+            (cd "$plugin" && cargo test --locked)
+            echo "::endgroup::"
           done
 
       - name: Build Plugins
@@ -118,8 +112,30 @@ jobs:
             echo '</html>'
           } > build/index.html
 
-      - name: Deploy to GitHub Pages
+      - name: Upload Repository
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: repository
+          path: build
+          if-no-files-found: error
+
+  # Only pushes to main publish, and only this job can write to the repository.
+  deploy:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download Repository
+        uses: actions/download-artifact@v4
+        with:
+          name: repository
+          path: build
+
+      - name: Deploy to GitHub Pages
         uses: JamesIves/github-pages-deploy-action@v4
         with:
           branch: gh-pages
