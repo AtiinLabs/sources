@@ -42,12 +42,17 @@ pub mod fixtures {
         include_str!("../tests/fixtures/pages_night_harbor_v01.json");
 }
 
-/// The text of a plugin error (an [`Error`] or a [`crate::error::Failure`]), which must be
-/// an [`Error::Host`] carrying a sentence.
+/// The text of a plugin error (an [`Error`] or a [`crate::error::Failure`]), which must be one
+/// carrying a sentence.
 pub fn message(error: impl Into<Error>) -> String {
     match error.into() {
-        Error::Host(message) => message,
-        other => panic!("expected a host error, got {other:?}"),
+        Error::Host(message)
+        | Error::NeedsSetup(message)
+        | Error::Unauthorized(message)
+        | Error::Net(message)
+        | Error::Server(message)
+        | Error::NotFound(message) => message,
+        other => panic!("expected an error with a sentence, got {other:?}"),
     }
 }
 
@@ -167,7 +172,8 @@ impl Host for FakeHost {
                 headers: HashMap::new(),
                 body: body.clone(),
             }),
-            Outcome::Fail => Err(Error::Host("connection failed".to_owned())),
+            // As the SDK reports a request the host couldn't make.
+            Outcome::Fail => Err(Error::Net("connection failed".to_owned())),
         }
     }
 }

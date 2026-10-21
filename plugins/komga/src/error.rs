@@ -1,8 +1,8 @@
 //! Errors the user can act on.
 //!
-//! Ito's runner only logs a plugin's error, but the text is what a log reader (or a host
-//! that surfaces it) sees, so each one is a full sentence that says what to do. They carry
-//! an HTTP status at most: never a response body, a header, a URL or a credential.
+//! Each one is a full sentence that says what to do, and carries the category Ito acts on:
+//! missing settings and rejected credentials offer the plugin's settings. They carry an HTTP
+//! status at most: never a response body, a header, a URL or a credential.
 //!
 //! Inside the plugin a problem is a [`Failure`], so a caller can tell a missing setting from
 //! a rejected sign-in without reading a sentence; it becomes an [`Error`] at the boundary
@@ -50,10 +50,10 @@ impl From<Error> for Failure {
 impl From<Failure> for Error {
     fn from(failure: Failure) -> Self {
         match failure {
-            Failure::NotConfigured => host(NOT_CONFIGURED),
-            Failure::MissingCredentials => host(MISSING_CREDENTIALS),
-            Failure::Rejected(message) => host(message),
-            Failure::Unreachable => host(UNREACHABLE),
+            Failure::NotConfigured => Error::NeedsSetup(NOT_CONFIGURED.to_owned()),
+            Failure::MissingCredentials => Error::NeedsSetup(MISSING_CREDENTIALS.to_owned()),
+            Failure::Rejected(message) => Error::Unauthorized(message),
+            Failure::Unreachable => Error::Net(UNREACHABLE.to_owned()),
             Failure::Other(error) => error,
         }
     }
@@ -98,8 +98,8 @@ pub fn invalid_image_path() -> Failure {
 
 /// `Ok` for a 2xx status, otherwise the sentence for that failure.
 ///
-/// The runner reports a request it could not make (no route to the host, a bad URL, a TLS
-/// failure) as HTTP 500, so a 5xx can mean either the server or the connection.
+/// A request that never reached the server (no route to the host, a bad URL, a TLS failure)
+/// comes back from `send` as an error, not a status, so a 5xx here is the server's own.
 pub fn check_status(status: i32, auth: &Auth) -> Result<()> {
     let failure = match status {
         200..=299 => return Ok(()),
@@ -111,12 +111,13 @@ pub fn check_status(status: i32, auth: &Auth) -> Result<()> {
             "Komga denied access (HTTP 403). Check this account's permissions and library access."
                 .to_owned(),
         ),
-        404 => other(
-            "Komga couldn't find that (HTTP 404). Check the server URL, or the item may have been removed.",
-        ),
-        500..=599 => other(format!(
-            "Komga didn't respond properly (HTTP {status}). Check the server URL and that the server is running."
+        404 => Failure::Other(Error::NotFound(
+            "Komga couldn't find that (HTTP 404). Check the server URL, or the item may have been removed."
+                .to_owned(),
         )),
+        500..=599 => Failure::Other(Error::Server(format!(
+            "Komga had a server error (HTTP {status}). Try again later."
+        ))),
         _ => other(format!(
             "Komga returned an unexpected response (HTTP {status})."
         )),
@@ -177,7 +178,7 @@ mod tests {
             assert_eq!(
                 message(check_status(status, &api_key()).unwrap_err()),
                 format!(
-                    "Komga didn't respond properly (HTTP {status}). Check the server URL and that the server is running."
+                    "Komga had a server error (HTTP {status}). Try again later."
                 )
             );
         }
@@ -190,10 +191,18 @@ mod tests {
     }
 
     #[test]
-    fn errors_are_host_errors_so_the_sentence_is_the_message() {
-        assert!(matches!(Error::from(unreachable()), Error::Host(_)));
-        assert!(matches!(Error::from(unreadable_response()), Error::Host(_)));
-        assert!(matches!(Error::from(invalid_image_path()), Error::Host(_)));
+    fn each_failure_carries_the_category_ito_acts_on() {
+        use ito_rs::error::ErrorCategory;
+        let category = |failure: Failure| Error::from(failure).category();
+
+        assert_eq!(category(not_configured()), ErrorCategory::NeedsSetup);
+        assert_eq!(category(missing_credentials()), ErrorCategory::NeedsSetup);
+        assert_eq!(category(check_status(401, &api_key()).unwrap_err()), ErrorCategory::Unauthorized);
+        assert_eq!(category(check_status(403, &api_key()).unwrap_err()), ErrorCategory::Unauthorized);
+        assert_eq!(category(unreachable()), ErrorCategory::Network);
+        assert_eq!(category(check_status(404, &api_key()).unwrap_err()), ErrorCategory::NotFound);
+        assert_eq!(category(check_status(503, &api_key()).unwrap_err()), ErrorCategory::Server);
+        assert_eq!(category(unreadable_response()), ErrorCategory::Other);
         assert_eq!(
             message(unreachable()),
             "Couldn't connect to Komga. Check the server URL and that the server is running."
