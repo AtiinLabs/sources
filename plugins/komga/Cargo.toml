@@ -1,6 +1,6 @@
 [package]
 name = "komga"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2024"
 description = "Ito plugin that reads a self-hosted Komga server."
 license = "MIT"
