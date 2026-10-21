@@ -1,0 +1,110 @@
+[
+  {
+    "number": 1,
+    "fileName": "001.jpg",
+    "mediaType": "image/jpeg",
+    "width": 900,
+    "height": 1350,
+    "sizeBytes": 46492,
+    "size": "45.4 KiB"
+  },
+  {
+    "number": 2,
+    "fileName": "002.jpg",
+    "mediaType": "image/jpeg",
+    "width": 900,
+    "height": 1350,
+    "sizeBytes": 46488,
+    "size": "45.4 KiB"
+  },
+  {
+    "number": 3,
+    "fileName": "003.jpg",
+    "mediaType": "image/jpeg",
+    "width": 900,
+    "height": 1350,
+    "sizeBytes": 46139,
+    "size": "45.1 KiB"
+  },
+  {
+    "number": 4,
+    "fileName": "004.jpg",
+    "mediaType": "image/jpeg",
+    "width": 900,
+    "height": 1350,
+    "sizeBytes": 45845,
+    "size": "44.8 KiB"
+  },
+  {
+    "number": 5,
+    "fileName": "005.jpg",
+    "mediaType": "image/jpeg",
+    "width": 900,
+    "height": 1350,
+    "sizeBytes": 45487,
+    "size": "44.4 KiB"
+  },
+  {
+    "number": 6,
+    "fileName": "006.jpg",
+    "mediaType": "image/jpeg",
+    "width": 900,
+    "height": 1350,
+    "sizeBytes": 44989,
+    "size": "43.9 KiB"
+  },
+  {
+    "number": 7,
+    "fileName": "007.jpg",
+    "mediaType": "image/jpeg",
+    "width": 900,
+    "height": 1350,
+    "sizeBytes": 44683,
+    "size": "43.6 KiB"
+  },
+  {
+    "number": 8,
+    "fileName": "008.jpg",
+    "mediaType": "image/jpeg",
+    "width": 900,
+    "height": 1350,
+    "sizeBytes": 44360,
+    "size": "43.3 KiB"
+  },
+  {
+    "number": 9,
+    "fileName": "009.jpg",
+    "mediaType": "image/jpeg",
+    "width": 900,
+    "height": 1350,
+    "sizeBytes": 43962,
+    "size": "42.9 KiB"
+  },
+  {
+    "number": 10,
+    "fileName": "010.jpg",
+    "mediaType": "image/jpeg",
+    "width": 900,
+    "height": 1350,
+    "sizeBytes": 43729,
+    "size": "42.7 KiB"
+  },
+  {
+    "number": 11,
+    "fileName": "011.jpg",
+    "mediaType": "image/jpeg",
+    "width": 900,
+    "height": 1350,
+    "sizeBytes": 43511,
+    "size": "42.5 KiB"
+  },
+  {
+    "number": 12,
+    "fileName": "012.jpg",
+    "mediaType": "image/jpeg",
+    "width": 900,
+    "height": 1350,
+    "sizeBytes": 42972,
+    "size": "42 KiB"
+  }
+]

@@ -1,0 +1,17 @@
+{
+    "id": "com.atiinlabs.komga",
+    "name": "Komga",
+    "version": "1.0.0",
+    "min_app_version": "1.2.0",
+    "url": "https://komga.org",
+    "sourceUrl": "https://github.com/AtiinLabs/sources",
+    "contentRating": 0,
+    "nsfw": 0,
+    "language": "en",
+    "languages": [
+        "en"
+    ],
+    "type": "manga",
+    "author": "AtiinLabs",
+    "description": "Read your self-hosted Komga library in Ito."
+}

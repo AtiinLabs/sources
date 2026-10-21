@@ -1,0 +1,110 @@
+{
+  "content": [
+    {
+      "id": "0RZXGDDYZJRQS",
+      "libraryId": "0RZXGDDWFJZ22",
+      "name": "Night Harbor",
+      "url": "/data/Library/Night Harbor",
+      "created": "2026-10-21T06:31:43Z",
+      "lastModified": "2026-10-21T06:31:43Z",
+      "fileLastModified": "2026-10-21T06:10:35Z",
+      "booksCount": 6,
+      "booksReadCount": 0,
+      "booksUnreadCount": 4,
+      "booksInProgressCount": 2,
+      "metadata": {
+        "status": "ONGOING",
+        "statusLock": false,
+        "title": "Night Harbor",
+        "titleLock": false,
+        "titleSort": "Night Harbor",
+        "titleSortLock": false,
+        "summary": "A detective returns to the harbor town she left behind.",
+        "summaryLock": false,
+        "readingDirection": "RIGHT_TO_LEFT",
+        "readingDirectionLock": false,
+        "publisher": "Ito Press",
+        "publisherLock": false,
+        "ageRating": null,
+        "ageRatingLock": false,
+        "language": "en",
+        "languageLock": false,
+        "genres": [
+          "drama",
+          "mystery"
+        ],
+        "genresLock": false,
+        "tags": [
+          "drama",
+          "harbor",
+          "noir"
+        ],
+        "tagsLock": false,
+        "totalBookCount": null,
+        "totalBookCountLock": false,
+        "sharingLabels": [],
+        "sharingLabelsLock": false,
+        "links": [],
+        "linksLock": false,
+        "alternateTitles": [],
+        "alternateTitlesLock": false,
+        "created": "2026-10-21T06:31:43Z",
+        "lastModified": "2026-10-21T06:32:15Z"
+      },
+      "booksMetadata": {
+        "authors": [
+          {
+            "name": "Aiko Tanaka",
+            "role": "writer"
+          },
+          {
+            "name": "Ren Ito",
+            "role": "penciller"
+          },
+          {
+            "name": "Mina Park",
+            "role": "colorist"
+          },
+          {
+            "name": "Aiko Tanaka",
+            "role": "penciller"
+          }
+        ],
+        "notableEntities": [],
+        "tags": [],
+        "releaseDate": "2020-01-05",
+        "summary": "The detective takes the night ferry home.",
+        "summaryNumber": "1",
+        "created": "2026-10-21T06:31:43Z",
+        "lastModified": "2026-10-21T06:32:15Z"
+      },
+      "deleted": false,
+      "oneshot": false
+    }
+  ],
+  "pageable": {
+    "pageNumber": 0,
+    "pageSize": 20,
+    "sort": {
+      "empty": false,
+      "sorted": true,
+      "unsorted": false
+    },
+    "offset": 0,
+    "paged": true,
+    "unpaged": false
+  },
+  "totalElements": 1,
+  "totalPages": 1,
+  "last": true,
+  "size": 20,
+  "number": 0,
+  "numberOfElements": 1,
+  "sort": {
+    "empty": false,
+    "sorted": true,
+    "unsorted": false
+  },
+  "first": true,
+  "empty": false
+}

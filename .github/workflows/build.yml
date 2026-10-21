@@ -1,0 +1,146 @@
+name: Build Plugins
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The ito-pkg revision that packs the plugins and builds the repository index.
+  ITO_PKG_REV: cde8969873d09db50fe33f1e82754b8e7fcd946c
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            plugins/*/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('plugins/*/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Cache ito-pkg
+        id: ito-pkg-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/ito-pkg
+          key: ito-pkg-${{ runner.os }}-${{ env.ITO_PKG_REV }}
+
+      - name: Install ito-pkg
+        if: steps.ito-pkg-cache.outputs.cache-hit != 'true'
+        run: |
+          cargo install --git https://github.com/AtiinLabs/ito-pkg --rev "$ITO_PKG_REV" --locked
+
+      - name: Test Plugins
+        run: |
+          set -euo pipefail
+          for plugin in plugins/*/; do
+            echo "::group::cargo test $plugin"
+            (cd "$plugin" && cargo test --locked)
+            echo "::endgroup::"
+          done
+
+      - name: Build Plugins
+        run: |
+          set -euo pipefail
+          mkdir -p staging
+          for plugin in plugins/*/; do
+            plugin="${plugin%/}"
+            echo "::group::ito-pkg pack $plugin"
+            (cd "$plugin" && ito-pkg pack)
+            mv "$plugin"/*.ito staging/
+            echo "::endgroup::"
+          done
+
+      - name: Build Repository Index
+        run: |
+          ito-pkg repo \
+            --input staging \
+            --output build \
+            --url "https://atiinlabs.github.io/sources" \
+            --name "AtiinLabs" \
+            --description "First-party Ito plugins for reading services."
+
+      - name: Add Landing Page
+        run: |
+          set -euo pipefail
+          {
+            cat <<'EOF'
+          <!doctype html>
+          <html lang="en">
+          <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <title>AtiinLabs Ito plugins</title>
+          <style>
+          body { font: 16px/1.5 -apple-system, system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; }
+          code { background: rgba(127, 127, 127, 0.18); padding: 0.1rem 0.35rem; border-radius: 0.25rem; }
+          </style>
+          </head>
+          <body>
+          <h1>AtiinLabs</h1>
+          <p>First-party plugins for <a href="https://github.com/AtiinLabs/Ito">Ito</a>. To install them, add this repository in Ito:</p>
+          EOF
+            jq -r '"<p><code>\(.repo_url | @html)</code></p>"' build/index.json
+            echo '<h2>Plugins</h2>'
+            echo '<ul>'
+            jq -r '.packages[] | "<li>\(.name | @html) <small>v\(.version | @html)</small></li>"' build/index.json
+            echo '</ul>'
+            echo '<p><a href="index.json">index.json</a> · <a href="https://github.com/AtiinLabs/sources">Source</a></p>'
+            echo '</body>'
+            echo '</html>'
+          } > build/index.html
+
+      - name: Upload Repository
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: repository
+          path: build
+          if-no-files-found: error
+
+  # Only pushes to main publish, and only this job can write to the repository.
+  deploy:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download Repository
+        uses: actions/download-artifact@v4
+        with:
+          name: repository
+          path: build
+
+      - name: Deploy to GitHub Pages
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: build
+          git-config-name: GitHub Actions
+          git-config-email: github-actions[bot]@users.noreply.github.com
+          commit-message: Update plugin repository
+          single-commit: true
