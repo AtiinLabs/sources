@@ -76,7 +76,7 @@ dependencies = [
 [[package]]
 name = "ito-rs"
 version = "0.1.1"
-source = "git+https://github.com/AtiinLabs/ito-rs?branch=feat%2Fsecret-setting#4f3711f565c095a3bbc069150541b722d58999d5"
+source = "git+https://github.com/AtiinLabs/ito-rs?branch=master#2949f914694fc77fdc6de39393ec417809ca2e74"
 dependencies = [
  "postcard",
  "serde",
