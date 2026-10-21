@@ -1,7 +1,7 @@
 {
     "id": "com.atiinlabs.komga",
     "name": "Komga",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "min_app_version": "1.2.0",
     "url": "https://komga.org",
     "sourceUrl": "https://github.com/AtiinLabs/sources",
