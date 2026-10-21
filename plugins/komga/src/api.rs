@@ -214,6 +214,8 @@ mod tests {
     use super::*;
     use crate::error::NOT_CONFIGURED;
     use crate::testing::{BASE, FakeHost, fixtures, message};
+    use ito_rs::Error;
+    use ito_rs::error::ErrorCategory;
 
     fn header<'a>(request: &'a HttpRequest, name: &str) -> Option<&'a str> {
         request
@@ -655,8 +657,9 @@ mod tests {
             401,
             r#"{"status":401,"error":"Unauthorized"}"#,
         );
-        let err = Client::connect(&host).unwrap().libraries().unwrap_err();
-        assert_eq!(message(err), "Komga rejected the API key (HTTP 401).");
+        let error: Error = Client::connect(&host).unwrap().libraries().unwrap_err().into();
+        assert_eq!(error.category(), ErrorCategory::Unauthorized);
+        assert_eq!(message(error), "Komga rejected the API key (HTTP 401).");
     }
 
     #[test]
@@ -676,9 +679,10 @@ mod tests {
     #[test]
     fn a_failed_connection_is_reported_without_internals() {
         let host = FakeHost::configured().fail(Method::Get, "https://komga.test/api/v1/libraries");
-        let err = Client::connect(&host).unwrap().libraries().unwrap_err();
+        let error: Error = Client::connect(&host).unwrap().libraries().unwrap_err().into();
+        assert_eq!(error.category(), ErrorCategory::Network);
         assert_eq!(
-            message(err),
+            message(error),
             "Couldn't connect to Komga. Check the server URL and that the server is running."
         );
     }
@@ -691,7 +695,9 @@ mod tests {
             500,
             "FFI Error in net_fetch_v2: secret-token-in-url",
         );
-        let text = message(Client::connect(&host).unwrap().libraries().unwrap_err());
+        let error: Error = Client::connect(&host).unwrap().libraries().unwrap_err().into();
+        assert_eq!(error.category(), ErrorCategory::Server);
+        let text = message(error);
         assert!(text.contains("HTTP 500"));
         assert!(!text.contains("secret"), "{text}");
     }

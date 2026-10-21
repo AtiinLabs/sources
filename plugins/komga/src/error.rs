@@ -116,7 +116,7 @@ pub fn check_status(status: i32, auth: &Auth) -> Result<()> {
                 .to_owned(),
         )),
         500..=599 => Failure::Other(Error::Server(format!(
-            "Komga didn't respond properly (HTTP {status}). Check the server URL and that the server is running."
+            "Komga had a server error (HTTP {status}). Try again later."
         ))),
         _ => other(format!(
             "Komga returned an unexpected response (HTTP {status})."
@@ -178,7 +178,7 @@ mod tests {
             assert_eq!(
                 message(check_status(status, &api_key()).unwrap_err()),
                 format!(
-                    "Komga didn't respond properly (HTTP {status}). Check the server URL and that the server is running."
+                    "Komga had a server error (HTTP {status}). Try again later."
                 )
             );
         }

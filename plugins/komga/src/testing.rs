@@ -172,7 +172,8 @@ impl Host for FakeHost {
                 headers: HashMap::new(),
                 body: body.clone(),
             }),
-            Outcome::Fail => Err(Error::Host("connection failed".to_owned())),
+            // As the SDK reports a request the host couldn't make.
+            Outcome::Fail => Err(Error::Net("connection failed".to_owned())),
         }
     }
 }
