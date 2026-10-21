@@ -112,35 +112,26 @@ jobs:
             echo '</html>'
           } > build/index.html
 
-      - name: Upload Repository
+      - name: Upload Pages Artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-pages-artifact@v3
         with:
-          name: repository
           path: build
-          if-no-files-found: error
 
-  # Only pushes to main publish, and only this job can write to the repository.
+  # Only pushes to main publish. GitHub Pages serves the uploaded artifact directly, so no job
+  # writes to the repository.
   deploy:
     needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Download Repository
-        uses: actions/download-artifact@v4
-        with:
-          name: repository
-          path: build
-
       - name: Deploy to GitHub Pages
-        uses: JamesIves/github-pages-deploy-action@v4
-        with:
-          branch: gh-pages
-          folder: build
-          git-config-name: GitHub Actions
-          git-config-email: github-actions[bot]@users.noreply.github.com
-          commit-message: Update plugin repository
-          single-commit: true
+        id: deployment
+        uses: actions/deploy-pages@v4
