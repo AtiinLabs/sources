@@ -1,0 +1,22 @@
+[package]
+name = "komga"
+version = "1.0.0"
+edition = "2024"
+description = "Ito plugin that reads a self-hosted Komga server."
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+ito-rs = { git = "https://github.com/AtiinLabs/ito-rs", branch = "feat/secret-setting" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+base64 = "0.22.1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
+panic = "abort"

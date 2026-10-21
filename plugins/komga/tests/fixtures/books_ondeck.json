@@ -1,0 +1,80 @@
+{
+  "content": [
+    {
+      "id": "0RZXGDDYZJRQQ",
+      "seriesId": "0RZXGDDYZJRQM",
+      "seriesTitle": "Paper Lanterns",
+      "libraryId": "0RZXGDDWFJZ22",
+      "name": "Paper Lanterns v02",
+      "url": "/data/Library/Paper Lanterns/Paper Lanterns v02.cbz",
+      "number": 2,
+      "created": "2026-10-21T06:31:43Z",
+      "lastModified": "2026-10-21T06:42:35Z",
+      "fileLastModified": "2026-10-21T06:10:35Z",
+      "sizeBytes": 561291,
+      "size": "548.1 KiB",
+      "media": {
+        "status": "READY",
+        "mediaType": "application/zip",
+        "pagesCount": 12,
+        "comment": "",
+        "epubDivinaCompatible": false,
+        "epubIsKepub": false,
+        "mediaProfile": "DIVINA"
+      },
+      "metadata": {
+        "title": "Paper Lanterns v02",
+        "titleLock": false,
+        "summary": "",
+        "summaryLock": false,
+        "number": "2",
+        "numberLock": false,
+        "numberSort": 2.0,
+        "numberSortLock": false,
+        "releaseDate": null,
+        "releaseDateLock": false,
+        "authors": [],
+        "authorsLock": false,
+        "notableEntities": [],
+        "notableEntitiesLock": false,
+        "tags": [],
+        "tagsLock": false,
+        "isbn": "",
+        "isbnLock": false,
+        "links": [],
+        "linksLock": false,
+        "created": "2026-10-21T06:31:43Z",
+        "lastModified": "2026-10-21T06:42:35Z"
+      },
+      "readProgress": null,
+      "deleted": false,
+      "fileHash": "2de326e3e5aab6ac39c6152fb8073941",
+      "oneshot": false
+    }
+  ],
+  "pageable": {
+    "pageNumber": 0,
+    "pageSize": 20,
+    "sort": {
+      "empty": true,
+      "sorted": false,
+      "unsorted": true
+    },
+    "offset": 0,
+    "paged": true,
+    "unpaged": false
+  },
+  "totalElements": 1,
+  "totalPages": 1,
+  "last": true,
+  "size": 20,
+  "number": 0,
+  "numberOfElements": 1,
+  "sort": {
+    "empty": true,
+    "sorted": false,
+    "unsorted": true
+  },
+  "first": true,
+  "empty": false
+}
