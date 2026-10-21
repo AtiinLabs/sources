@@ -12,7 +12,7 @@ concurrency:
 
 env:
   # The ito-pkg revision that packs the plugins and builds the repository index.
-  ITO_PKG_REV: cde8969873d09db50fe33f1e82754b8e7fcd946c
+  ITO_PKG_REV: 97a1e8eaffc94dea7e16e05624fde6f3be4ddd4e
 
 jobs:
   build:
