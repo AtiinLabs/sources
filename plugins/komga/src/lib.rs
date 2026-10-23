@@ -64,6 +64,10 @@ impl MangaProvider for Komga {
         service::page_list(&ItoHost, &chapter)
     }
 
+    fn mark_chapter_read(_media_key: &str, chapter_key: &str) -> Result<()> {
+        service::mark_chapter_read(&ItoHost, chapter_key)
+    }
+
     fn get_image_origins() -> Result<Vec<String>> {
         service::image_origins(&ItoHost)
     }

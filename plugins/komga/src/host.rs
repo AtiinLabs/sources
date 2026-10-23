@@ -11,6 +11,7 @@ use ito_rs::net::{NetResponse, Request};
 pub enum Method {
     Get,
     Post,
+    Patch,
 }
 
 impl Method {
@@ -18,6 +19,7 @@ impl Method {
         match self {
             Method::Get => "GET",
             Method::Post => "POST",
+            Method::Patch => "PATCH",
         }
     }
 }

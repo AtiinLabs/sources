@@ -96,6 +96,10 @@ pub fn invalid_image_path() -> Failure {
     other(IMAGE_PATH)
 }
 
+pub fn invalid_book_key() -> Failure {
+    other("Komga can't sync progress for an invalid book key.")
+}
+
 /// `Ok` for a 2xx status, otherwise the sentence for that failure.
 ///
 /// A request that never reached the server (no route to the host, a bad URL, a TLS failure)
