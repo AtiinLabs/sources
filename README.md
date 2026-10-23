@@ -38,7 +38,7 @@ What it does:
 - **Chapters**: a series' books, newest first. Books Komga has not analysed, books whose files are gone, and text EPUBs (which have no page images) are left out; image archives, PDFs and image-based EPUBs are readable.
 - **Covers and pages** use stable, plugin-owned `ito://` locators and your current credentials, so a server-address change needs no plugin reinstall. Hosts supporting native image requests fetch bytes outside WASM using transient URL/header descriptors and the configured server origin; older hosts retain the legacy byte handler. Credentials are not stored in page metadata.
 
-Not included yet: syncing your reading progress back to Komga.
+- **Read completion**: exposes an idempotent book-completion notification for supporting hosts. It sends only `completed: true`; partial-page updates, unread/reset operations, and other user metadata are not sent. Durable retries and confirmation after account/settings changes belong to the host. Older hosts remain read-only.
 
 ## Build locally
 

@@ -1,4 +1,4 @@
-//! Komga's REST API: one method per endpoint the plugin uses.
+//! Komga's REST API: one operation per endpoint the plugin uses.
 //!
 //! A [`Client`] is built per operation from the current settings (see [`Client::connect`]),
 //! so it never holds on to a stale server URL or credential.
@@ -146,7 +146,7 @@ impl<'h, H: Host> Client<'h, H> {
     /// `api/v1/series/{id}/thumbnail`. See [`image_path`] for what is accepted.
     pub fn image(&self, path: &str) -> Result<Vec<u8>> {
         let path = image_path(path)?;
-        let response = self.execute(Method::Get, &format!("/{path}"), IMAGE_ACCEPT, None)?;
+        let response = self.execute(Method::Get, format_args!("/{path}"), IMAGE_ACCEPT, None)?;
         Ok(response.body)
     }
 
@@ -162,7 +162,7 @@ impl<'h, H: Host> Client<'h, H> {
     fn execute(
         &self,
         method: Method,
-        path: &str,
+        path: impl std::fmt::Display,
         accept: &str,
         body: Option<Vec<u8>>,
     ) -> Result<NetResponse> {
@@ -184,6 +184,27 @@ impl<'h, H: Host> Client<'h, H> {
         error::check_status(response.status, &self.auth)?;
         Ok(response)
     }
+}
+
+/// Completes one book without sending a page number or changing any other user metadata.
+/// Validate the opaque key as one URL-safe token before reading credentials or making a request.
+pub fn complete_book(host: &impl Host, book_key: &str) -> Result<()> {
+    if book_key.is_empty()
+        || matches!(book_key, "." | "..")
+        || !book_key
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~'))
+    {
+        return Err(error::invalid_book_key());
+    }
+    let client = Client::connect(host)?;
+    client.execute(
+        Method::Patch,
+        format_args!("/api/v1/books/{book_key}/read-progress"),
+        "application/json",
+        Some(br#"{"completed":true}"#.to_vec()),
+    )?;
+    Ok(())
 }
 
 fn parse<T: DeserializeOwned>(response: &NetResponse) -> Result<T> {
@@ -227,6 +248,54 @@ mod tests {
 
     fn body_json(request: &HttpRequest) -> Value {
         serde_json::from_slice(request.body.as_deref().expect("request has a body")).unwrap()
+    }
+
+    #[test]
+    fn completing_a_book_accepts_an_empty_204_and_never_sends_a_lower_page() {
+        let host = FakeHost::configured()
+            .setting("server_url", "https://proxy.test/komga/")
+            .respond(
+                Method::Patch,
+                "https://proxy.test/komga/api/v1/books/B_1-2.~/read-progress",
+                204,
+                [],
+            );
+        crate::service::mark_chapter_read(&host, "B_1-2.~").unwrap();
+        let requests = host.requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].method, Method::Patch);
+        assert_eq!(
+            requests[0].url,
+            "https://proxy.test/komga/api/v1/books/B_1-2.~/read-progress"
+        );
+        assert_eq!(body_json(&requests[0]), json!({ "completed": true }));
+        assert_eq!(header(&requests[0], "Content-Type"), Some("application/json"));
+    }
+
+    #[test]
+    fn completion_keys_cannot_widen_the_write_target_and_are_checked_before_credentials() {
+        for key in [
+            "",
+            ".",
+            "..",
+            "../series/S",
+            "B/../../series/S",
+            "https://evil.test/B",
+            "//evil.test/B",
+            "B?key=private",
+            "B#fragment",
+            "B%2f..",
+            "B;parameters",
+            "B\\path",
+            "B path",
+            "B\r\nheader",
+            "B\0",
+        ] {
+            let host = FakeHost::new();
+            let error = crate::service::mark_chapter_read(&host, key).unwrap_err();
+            assert!(matches!(error, Error::Host(_)));
+            assert!(host.requests().is_empty());
+        }
     }
 
     #[test]

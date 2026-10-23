@@ -208,6 +208,11 @@ pub fn page_list(host: &impl Host, chapter: &Chapter) -> Result<Vec<Page>> {
         .collect())
 }
 
+/// Sends only a completion flag; the host owns durable delivery and target-scope authorization.
+pub fn mark_chapter_read(host: &impl Host, chapter_key: &str) -> Result<()> {
+    Ok(api::complete_book(host, chapter_key)?)
+}
+
 /// The configured server is the sole image authority; never derive it from an image path.
 ///
 /// This is a base URL, possibly including a reverse-proxy path prefix. Ito normalizes it to
