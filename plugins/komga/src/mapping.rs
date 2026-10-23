@@ -2,7 +2,7 @@
 //!
 //! Pure functions only: nothing here touches the network or the host.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use ito_rs::models::manga::{Chapter, ContentRating, Manga, Status, Viewer};
 use ito_rs::models::{Page, PageContent};
@@ -14,16 +14,16 @@ pub const PLUGIN_ID: &str = "com.atiinlabs.komga";
 
 /// A series cover as an `ito://` URL.
 ///
-/// Ito routes `ito://<plugin id>/<path>` image loads to the plugin's `handle_image` with
-/// `<path>`. The path is relative to the server and the URL names no host, so a cover saved
-/// in the library keeps working after the server URL changes.
+/// Ito resolves `ito://<plugin id>/<path>` through the native image-request descriptor,
+/// or `handle_image` on older hosts. The locator contains neither a server nor credentials,
+/// so a cover saved in the library keeps working after the server URL changes.
 pub fn cover_url(series_id: &str) -> String {
     format!("ito://{PLUGIN_ID}/api/v1/series/{series_id}/thumbnail")
 }
 
-/// The address of a book page image. Komga numbers pages from 1.
-pub fn page_url(base: &str, book_id: &str, number: i32) -> String {
-    format!("{base}/api/v1/books/{book_id}/pages/{number}")
+/// A stable plugin-owned book page locator. Komga numbers pages from 1.
+pub fn page_url(book_id: &str, number: i32) -> String {
+    format!("ito://{PLUGIN_ID}/api/v1/books/{book_id}/pages/{number}")
 }
 
 fn series_web_url(base: &str, series_id: &str) -> String {
@@ -219,13 +219,13 @@ fn restates_number(title: &str, number: Option<f64>) -> bool {
 }
 
 /// A book page as a reader page. `index` counts from 0, as Ito's pages do.
-pub fn page(index: i32, url: String, headers: HashMap<String, String>) -> Page {
+pub fn page(index: i32, url: String) -> Page {
     Page {
         index,
         content: PageContent::Url(url),
         has_description: false,
         description: None,
-        headers: Some(headers),
+        headers: None,
     }
 }
 
@@ -868,21 +868,14 @@ mod tests {
     #[test]
     fn pages_are_numbered_from_zero_and_addressed_from_one() {
         assert_eq!(
-            page_url(BASE, "B1", 1),
-            "https://komga.test/api/v1/books/B1/pages/1"
+            page_url("B1", 1),
+            "ito://com.atiinlabs.komga/api/v1/books/B1/pages/1"
         );
-        let page = page(
-            0,
-            page_url(BASE, "B1", 1),
-            HashMap::from([("X".to_owned(), "y".to_owned())]),
-        );
+        let page = page(0, page_url("B1", 1));
         assert_eq!(page.index, 0);
         assert!(matches!(&page.content, PageContent::Url(url) if url.ends_with("/pages/1")));
         assert!(!page.has_description);
         assert!(page.description.is_none());
-        assert_eq!(
-            page.headers.unwrap().get("X").map(String::as_str),
-            Some("y")
-        );
+        assert!(page.headers.is_none());
     }
 }

@@ -16,7 +16,7 @@ use ito_rs::Result;
 #[cfg(target_arch = "wasm32")]
 use ito_rs::export_manga_plugin;
 use ito_rs::models::manga::{Chapter, Manga, PageResult};
-use ito_rs::models::{FilterItem, HomeLayout, Listing, Page, SettingsSchema};
+use ito_rs::models::{FilterItem, HomeLayout, Listing, Page, PluginImageRequest, SettingsSchema};
 use ito_rs::provider::MangaProvider;
 
 pub mod api;
@@ -62,6 +62,14 @@ impl MangaProvider for Komga {
 
     fn get_page_list(_manga: Manga, chapter: Chapter) -> Result<Vec<Page>> {
         service::page_list(&ItoHost, &chapter)
+    }
+
+    fn get_image_origins() -> Result<Vec<String>> {
+        service::image_origins(&ItoHost)
+    }
+
+    fn get_image_request(path: &str) -> Result<PluginImageRequest> {
+        service::image_request(&ItoHost, path)
     }
 
     fn handle_image(url: &str) -> Result<Vec<u8>> {
