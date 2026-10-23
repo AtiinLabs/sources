@@ -4,13 +4,16 @@
 
 use ito_rs::Result;
 use ito_rs::models::manga::{Chapter, Manga, PageResult};
-use ito_rs::models::{HomeComponent, HomeComponentValue, HomeLayout, Listing, Page};
+use ito_rs::models::{
+    HomeComponent, HomeComponentValue, HomeLayout, Listing, Page, PluginImageRequest,
+};
 
-use crate::api::{Client, SeriesQuery};
+use crate::api::{self, Client, SeriesQuery};
 use crate::dto::{BookDto, Paged, SeriesDto};
 use crate::error::{self, Failure};
 use crate::host::Host;
 use crate::mapping;
+use crate::settings::Settings;
 
 /// The id of the listing that spans every library.
 pub const ALL_LISTING: &str = "all";
@@ -192,22 +195,37 @@ pub fn manga_update(
     Ok(manga)
 }
 
-/// The pages of a chapter, each with the headers its image request needs.
+/// Chapter pages use plugin-owned locators, with credentials resolved only when loaded.
 pub fn page_list(host: &impl Host, chapter: &Chapter) -> Result<Vec<Page>> {
     let client = Client::connect(host)?;
     let pages = client.book_pages(&chapter.key)?;
-    let headers = client.image_headers();
     Ok(pages
         .iter()
         .enumerate()
         .map(|(index, page)| {
-            mapping::page(
-                index as i32,
-                mapping::page_url(client.base(), &chapter.key, page.number),
-                headers.clone(),
-            )
+            mapping::page(index as i32, mapping::page_url(&chapter.key, page.number))
         })
         .collect())
+}
+
+/// The configured server is the sole image authority; never derive it from an image path.
+///
+/// This is a base URL, possibly including a reverse-proxy path prefix. Ito normalizes it to
+/// its scheme/host/effective-port origin for the native destination and redirect checks.
+/// Loading settings also preserves the typed setup error when configuration is missing.
+pub fn image_origins(host: &impl Host) -> Result<Vec<String>> {
+    Ok(vec![Settings::load(host)?.server_url])
+}
+
+/// Resolve a server-relative image path without sending a request. Validate before building
+/// the destination or attaching credentials, using the same policy as the legacy byte path.
+pub fn image_request(host: &impl Host, path: &str) -> Result<PluginImageRequest> {
+    let path = api::image_path(path)?;
+    let client = Client::connect(host)?;
+    Ok(PluginImageRequest {
+        url: format!("{}/{path}", client.base()),
+        headers: Some(client.image_headers()),
+    })
 }
 
 /// An image Ito asked the plugin for, by the path that followed the plugin id in its
@@ -871,68 +889,165 @@ mod tests {
             assert_eq!(
                 url,
                 &format!(
-                    "https://komga.test/api/v1/books/0RZXGDDZ3JRXJ/pages/{}",
+                    "ito://com.atiinlabs.komga/api/v1/books/0RZXGDDZ3JRXJ/pages/{}",
                     index + 1
                 )
             );
             assert!(!page.has_description);
             assert!(page.description.is_none());
+            assert!(page.headers.is_none());
         }
     }
 
     #[test]
-    fn pages_carry_the_api_key_and_an_image_accept_header() {
-        let host = FakeHost::configured().json(
-            Method::Get,
-            "/api/v1/books/B/pages",
-            fixtures::PAGES_NIGHT_HARBOR_V01,
-        );
-        let pages = page_list(&host, &chapter("B")).unwrap();
-        for page in &pages {
-            let headers = page.headers.as_ref().expect("pages carry headers");
-            assert_eq!(headers.len(), 2);
-            assert_eq!(headers["X-API-Key"], "test-api-key");
-            assert_eq!(headers["Accept"], "image/jpeg,image/png,image/webp,image/*");
-        }
+    fn native_image_resolution_uses_the_configured_server_and_api_key_without_network() {
+        let host = FakeHost::configured();
+        let request = image_request(&host, "api/v1/series/S1/thumbnail").unwrap();
+        assert_eq!(request.url, format!("{BASE}/api/v1/series/S1/thumbnail"));
+        let headers = request.headers.unwrap();
+        assert_eq!(headers["X-API-Key"], "test-api-key");
+        assert_eq!(headers["Accept"], api::IMAGE_ACCEPT);
+        assert!(!headers.contains_key("Authorization"));
+        assert!(host.requests().is_empty());
     }
 
     #[test]
-    fn pages_carry_basic_auth_when_that_is_how_the_user_signs_in() {
+    fn native_images_keep_the_base_prefix_query_and_basic_auth_without_network() {
         let host = FakeHost::new()
-            .setting("server_url", BASE)
+            .setting("server_url", "https://proxy.test:8443/komga/")
+            .setting("username", "user")
+            .setting("password", "pass");
+        let request = image_request(&host, "api/v1/books/B/pages/3?convert=jpeg").unwrap();
+        assert_eq!(
+            request.url,
+            "https://proxy.test:8443/komga/api/v1/books/B/pages/3?convert=jpeg"
+        );
+        let headers = request.headers.unwrap();
+        assert_eq!(headers["Authorization"], "Basic dXNlcjpwYXNz");
+        assert_eq!(headers["Accept"], api::IMAGE_ACCEPT);
+        assert!(!headers.contains_key("X-API-Key"));
+        assert_eq!(
+            image_origins(&host).unwrap(),
+            ["https://proxy.test:8443/komga"]
+        );
+        assert!(host.requests().is_empty());
+    }
+
+    #[test]
+    fn image_authority_is_independent_of_refused_locators_and_tracks_configuration() {
+        let host = FakeHost::configured();
+        for path in [
+            "https://evil.test/api/v1/books/B/pages/1",
+            "//evil.test/api/v1/books/B/pages/1",
+            "ito://evil.test/api/v1/books/B/pages/1",
+            "api/v1/../../admin",
+            "api/v1/books/../admin",
+            "api/v1/books/B\\pages/1",
+            "api/v1/books/B/pages/\n1",
+            "api/v1/books/B/pages/\u{0}1",
+            "api/v1/books/B/pages/ 1",
+        ] {
+            assert_eq!(image_origins(&host).unwrap(), [BASE]);
+            let native = image_request(&host, path).unwrap_err();
+            let legacy = image(&host, path).unwrap_err();
+            assert_eq!(message(native), message(legacy), "{path:?}");
+            assert_eq!(image_origins(&host).unwrap(), [BASE]);
+        }
+        host.set_setting("server_url", "http://local.test:25600/komga/");
+        assert_eq!(
+            image_origins(&host).unwrap(),
+            ["http://local.test:25600/komga"]
+        );
+        assert!(host.requests().is_empty());
+    }
+
+    #[test]
+    fn a_native_image_path_is_validated_even_before_loading_missing_settings() {
+        let host = FakeHost::new();
+        let err = image_request(&host, "https://evil.test/image").unwrap_err();
+        assert!(matches!(err, ito_rs::Error::Host(_)));
+        assert!(host.requests().is_empty());
+    }
+
+    #[test]
+    fn native_images_and_authority_report_typed_setup_errors() {
+        for host in [FakeHost::new(), FakeHost::new().setting("server_url", BASE)] {
+            assert!(matches!(
+                image_origins(&host).unwrap_err(),
+                ito_rs::Error::NeedsSetup(_)
+            ));
+            assert!(matches!(
+                image_request(&host, "api/v1/series/S1/thumbnail").unwrap_err(),
+                ito_rs::Error::NeedsSetup(_)
+            ));
+            assert!(host.requests().is_empty());
+        }
+    }
+
+    #[test]
+    fn page_locators_do_not_embed_basic_auth_or_the_server() {
+        let host = FakeHost::new()
+            .setting("server_url", "https://proxy.test/komga/")
             .setting("username", "user")
             .setting("password", "pass")
-            .json(
+            .respond(
                 Method::Get,
-                "/api/v1/books/B/pages",
+                "https://proxy.test/komga/api/v1/books/B/pages",
+                200,
                 fixtures::PAGES_NIGHT_HARBOR_V01,
             );
         let pages = page_list(&host, &chapter("B")).unwrap();
-        let headers = pages[0].headers.as_ref().unwrap();
-        assert_eq!(headers["Authorization"], "Basic dXNlcjpwYXNz");
-        assert!(!headers.contains_key("X-API-Key"));
-        assert_eq!(headers["Accept"], "image/jpeg,image/png,image/webp,image/*");
+        for (index, page) in pages.iter().enumerate() {
+            let ito_rs::models::PageContent::Url(url) = &page.content else {
+                panic!("expected a URL page");
+            };
+            assert_eq!(
+                url,
+                &format!(
+                    "ito://com.atiinlabs.komga/api/v1/books/B/pages/{}",
+                    index + 1
+                )
+            );
+            assert!(page.headers.is_none());
+        }
     }
 
     #[test]
-    fn pages_follow_the_server_urls_changes_without_a_restart() {
+    fn a_saved_page_resolves_current_settings_and_still_works_on_legacy_hosts() {
         let host = FakeHost::configured().json(
             Method::Get,
             "/api/v1/books/B/pages",
-            fixtures::PAGES_NIGHT_HARBOR_V01,
-        );
-        host.set_setting("server_url", "https://moved.test/");
-        host.add_response(
-            Method::Get,
-            "https://moved.test/api/v1/books/B/pages",
-            200,
             fixtures::PAGES_NIGHT_HARBOR_V01,
         );
         let pages = page_list(&host, &chapter("B")).unwrap();
         let ito_rs::models::PageContent::Url(url) = &pages[0].content else {
             panic!("expected a URL page");
         };
-        assert_eq!(url, "https://moved.test/api/v1/books/B/pages/1");
+        let path = url.strip_prefix("ito://com.atiinlabs.komga/").unwrap();
+        host.set_setting("server_url", "https://moved.test/komga/");
+        host.set_setting("api_key", "new-key");
+        let descriptor = image_request(&host, path).unwrap();
+        assert_eq!(
+            descriptor.url,
+            "https://moved.test/komga/api/v1/books/B/pages/1"
+        );
+        assert_eq!(descriptor.headers.unwrap()["X-API-Key"], "new-key");
+        assert_eq!(host.requests().len(), 1, "resolution sends no request");
+        host.add_response(
+            Method::Get,
+            "https://moved.test/komga/api/v1/books/B/pages/1",
+            200,
+            vec![0xFF, 0xD8, 0xFF],
+        );
+        assert_eq!(image(&host, path).unwrap(), [0xFF, 0xD8, 0xFF]);
+        let requests = host.requests();
+        assert_eq!(requests[1].url, descriptor.url);
+        assert!(
+            requests[1]
+                .headers
+                .iter()
+                .any(|(name, value)| { name == "X-API-Key" && value == "new-key" })
+        );
     }
 
     #[test]

@@ -36,7 +36,7 @@ What it does:
 - **Browse and search**: every library, and full-text search across the series you can see.
 - **Details**: title, summary, authors (writers and pencillers), genres and tags, status and reading direction.
 - **Chapters**: a series' books, newest first. Books Komga has not analysed, books whose files are gone, and text EPUBs (which have no page images) are left out; image archives, PDFs and image-based EPUBs are readable.
-- **Covers and pages** are loaded with your credentials. Covers are saved relative to the server, so they keep working if you move Komga to another address.
+- **Covers and pages** use stable, plugin-owned `ito://` locators and your current credentials, so a server-address change needs no plugin reinstall. Hosts supporting native image requests fetch bytes outside WASM using transient URL/header descriptors and the configured server origin; older hosts retain the legacy byte handler. Credentials are not stored in page metadata.
 
 Not included yet: syncing your reading progress back to Komga.
 
