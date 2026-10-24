@@ -16,7 +16,10 @@ use ito_rs::Result;
 #[cfg(target_arch = "wasm32")]
 use ito_rs::export_manga_plugin;
 use ito_rs::models::manga::{Chapter, Manga, PageResult};
-use ito_rs::models::{FilterItem, HomeLayout, Listing, Page, PluginImageRequest, SettingsSchema};
+use ito_rs::models::{
+    FilterItem, HomeLayout, Listing, Page, PluginImageRequest, SettingIssue, SettingsAction,
+    SettingsSchema,
+};
 use ito_rs::provider::MangaProvider;
 
 pub mod api;
@@ -33,6 +36,9 @@ mod testing;
 
 use host::ItoHost;
 
+/// The settings action that checks the configured server without changing anything.
+const TEST_CONNECTION: &str = service::TEST_CONNECTION;
+
 pub struct Komga;
 
 impl MangaProvider for Komga {
@@ -42,6 +48,24 @@ impl MangaProvider for Komga {
 
     fn get_settings() -> Option<SettingsSchema> {
         Some(settings::schema())
+    }
+
+    fn get_settings_actions() -> Result<Vec<SettingsAction>> {
+        Ok(vec![SettingsAction {
+            id: TEST_CONNECTION.to_owned(),
+            title: "Test connection".to_owned(),
+            summary: Some(
+                "Checks the server URL and sign-in shown here. Nothing is saved.".to_owned(),
+            ),
+        }])
+    }
+
+    fn run_settings_action(action_id: &str) -> Result<String> {
+        service::run_settings_action(&ItoHost, action_id)
+    }
+
+    fn validate_settings() -> Result<Vec<SettingIssue>> {
+        settings::validate(&ItoHost)
     }
 
     fn get_manga_list(listing: Listing, page: i32) -> Result<PageResult> {
@@ -101,6 +125,16 @@ mod tests {
         let schema = Komga::get_settings().expect("the plugin has settings");
         assert_eq!(schema.settings.len(), 4);
         assert!(matches!(&schema.settings[0], Setting::Text { id, .. } if id == "server_url"));
+    }
+
+    #[test]
+    fn the_settings_screen_offers_only_the_connection_check() {
+        let ids: Vec<String> = Komga::get_settings_actions()
+            .unwrap()
+            .into_iter()
+            .map(|action| action.id)
+            .collect();
+        assert_eq!(ids, [TEST_CONNECTION]);
     }
 
     #[test]

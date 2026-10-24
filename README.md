@@ -40,6 +40,8 @@ What it does:
 
 - **Read completion**: exposes an idempotent book-completion notification for supporting hosts. It sends only `completed: true`; partial-page updates, unread/reset operations, and other user metadata are not sent. Durable retries and confirmation after account/settings changes belong to the host. Older hosts remain read-only.
 
+- **Settings check**: on supporting hosts, the settings screen points out a missing server URL or incomplete sign-in as you type, and **Test connection** checks the address and sign-in shown with one read-only request, including a newly typed API key or password before you save it. Nothing is saved or changed on the server. Older hosts show the settings as before.
+
 ## Build locally
 
 You need Rust with the WebAssembly target and `ito-pkg`, pinned to the revision CI uses:

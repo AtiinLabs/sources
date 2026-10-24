@@ -76,7 +76,7 @@ dependencies = [
 [[package]]
 name = "ito-rs"
 version = "0.1.1"
-source = "git+https://github.com/AtiinLabs/ito-rs?branch=master#4268994284060cbbeefdd38efbe1cc8965f47eef"
+source = "git+https://github.com/AtiinLabs/ito-rs?branch=master#219cc871332a9e9ce1ce5370629f130630edac73"
 dependencies = [
  "postcard",
  "serde",
@@ -92,7 +92,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "komga"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "base64",
  "ito-rs",
