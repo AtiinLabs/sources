@@ -213,6 +213,29 @@ pub fn mark_chapter_read(host: &impl Host, chapter_key: &str) -> Result<()> {
     Ok(api::complete_book(host, chapter_key)?)
 }
 
+/// The id of the settings screen's connection check.
+pub const TEST_CONNECTION: &str = "test_connection";
+
+/// Runs a settings action by id. An id the plugin never declared is not handled, so the host
+/// cannot mistake it for a successful check, and nothing is requested.
+pub fn run_settings_action(host: &impl Host, action_id: &str) -> Result<String> {
+    match action_id {
+        TEST_CONNECTION => test_connection(host),
+        _ => Err(ito_rs::Error::Unsupported),
+    }
+}
+
+/// The settings screen's "Test connection": one read-only request with the settings the host
+/// supplies, which may include an unsaved key. Failures keep their categories and sentences.
+pub fn test_connection(host: &impl Host) -> Result<String> {
+    let libraries = Client::connect(host)?.libraries()?;
+    Ok(match libraries.len() {
+        0 => "Connected to Komga. No libraries are shared with this account.".to_owned(),
+        1 => "Connected to Komga. 1 library is available.".to_owned(),
+        count => format!("Connected to Komga. {count} libraries are available."),
+    })
+}
+
 /// The configured server is the sole image authority; never derive it from an image path.
 ///
 /// This is a base URL, possibly including a reverse-proxy path prefix. Ito normalizes it to
@@ -1126,5 +1149,69 @@ mod tests {
     fn an_image_request_without_settings_asks_the_user_to_configure_the_plugin() {
         let err = image(&FakeHost::new(), "api/v1/series/S1/thumbnail").unwrap_err();
         assert_eq!(message(err), NOT_CONFIGURED);
+    }
+
+    #[test]
+    fn test_connection_reports_the_libraries_the_account_can_see() {
+        for (body, expected) in [
+            (
+                "[]",
+                "Connected to Komga. No libraries are shared with this account.",
+            ),
+            (
+                r#"[{"id":"L1","name":"Manga"}]"#,
+                "Connected to Komga. 1 library is available.",
+            ),
+            (
+                r#"[{"id":"L1","name":"Manga"},{"id":"L2","name":"Comics"}]"#,
+                "Connected to Komga. 2 libraries are available.",
+            ),
+        ] {
+            let host = FakeHost::configured().respond(
+                Method::Get,
+                &format!("{BASE}{LIBRARIES}"),
+                200,
+                body,
+            );
+            assert_eq!(test_connection(&host).unwrap(), expected);
+            let requests = host.requests();
+            assert_eq!(requests.len(), 1);
+            assert_eq!(requests[0].method, Method::Get);
+            assert!(requests[0].body.is_none());
+        }
+    }
+
+    #[test]
+    fn test_connection_keeps_the_category_the_settings_screen_acts_on() {
+        let rejected =
+            FakeHost::configured().respond(Method::Get, &format!("{BASE}{LIBRARIES}"), 401, "");
+        assert!(matches!(
+            test_connection(&rejected),
+            Err(ito_rs::Error::Unauthorized(message)) if message == "Komga rejected the API key (HTTP 401)."
+        ));
+        let down = FakeHost::configured().fail(Method::Get, &format!("{BASE}{LIBRARIES}"));
+        assert!(matches!(test_connection(&down), Err(ito_rs::Error::Net(_))));
+
+        let unconfigured = FakeHost::new();
+        assert!(matches!(
+            test_connection(&unconfigured),
+            Err(ito_rs::Error::NeedsSetup(message)) if message == NOT_CONFIGURED
+        ));
+        assert!(unconfigured.requests().is_empty());
+    }
+
+    #[test]
+    fn only_the_declared_settings_action_runs() {
+        let host =
+            FakeHost::configured().respond(Method::Get, &format!("{BASE}{LIBRARIES}"), 200, "[]");
+        for id in ["", "Test_Connection", "test_connection ", "delete"] {
+            assert!(matches!(
+                run_settings_action(&host, id),
+                Err(ito_rs::Error::Unsupported)
+            ));
+        }
+        assert!(host.requests().is_empty());
+        assert!(run_settings_action(&host, TEST_CONNECTION).is_ok());
+        assert_eq!(host.requests().len(), 1);
     }
 }

@@ -7,7 +7,7 @@ use std::fmt;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use ito_rs::models::{Setting, SettingsSchema};
+use ito_rs::models::{Setting, SettingIssue, SettingsSchema};
 
 use crate::error::{self, Result};
 use crate::host::Host;
@@ -144,6 +144,60 @@ pub fn normalize_server_url(raw: &str) -> Option<String> {
         None
     } else {
         Some(url.to_owned())
+    }
+}
+
+/// What is missing or malformed in the settings, checked locally: no request is made and
+/// nothing is written. Messages never repeat a value the user entered. An empty list means the
+/// plugin can try to connect; only the server can say whether the credentials are accepted.
+pub fn validate(host: &impl Host) -> ito_rs::Result<Vec<SettingIssue>> {
+    let server_url = host.get_setting(SERVER_URL)?;
+    let has_api_key = host
+        .get_setting(API_KEY)?
+        .is_some_and(|key| !key.trim().is_empty());
+    let has_username = host
+        .get_setting(USERNAME)?
+        .is_some_and(|name| !name.trim().is_empty());
+    let has_password = host
+        .get_setting(PASSWORD)?
+        .is_some_and(|password| !password.is_empty());
+
+    let mut issues = Vec::new();
+    match server_url.as_deref().and_then(normalize_server_url) {
+        None => issues.push(issue(SERVER_URL, "Enter your Komga server URL.")),
+        Some(url) if !has_http_scheme(&url) => issues.push(issue(
+            SERVER_URL,
+            "The server URL must start with http:// or https://.",
+        )),
+        Some(_) => {}
+    }
+    if !has_api_key {
+        match (has_username, has_password) {
+            (true, true) => {}
+            (true, false) => issues.push(issue(PASSWORD, "Enter the password for this username.")),
+            (false, true) => issues.push(issue(USERNAME, "Enter the username for this password.")),
+            (false, false) => issues.push(issue(
+                API_KEY,
+                "Enter an API key, or a username and password.",
+            )),
+        }
+    }
+    Ok(issues)
+}
+
+fn has_http_scheme(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    ["http://", "https://"].iter().any(|scheme| {
+        lower
+            .strip_prefix(scheme)
+            .is_some_and(|rest| !rest.is_empty())
+    })
+}
+
+fn issue(key: &str, message: &str) -> SettingIssue {
+    SettingIssue {
+        key: key.to_owned(),
+        message: message.to_owned(),
     }
 }
 
@@ -400,5 +454,89 @@ mod tests {
         assert_eq!(decoded.settings.len(), 4);
         assert!(matches!(&decoded.settings[1], Setting::Secret { id, .. } if id == "api_key"));
         assert!(matches!(&decoded.settings[3], Setting::Secret { id, .. } if id == "password"));
+    }
+
+    fn issues(host: &FakeHost) -> Vec<(String, String)> {
+        validate(host)
+            .unwrap()
+            .into_iter()
+            .map(|issue| (issue.key, issue.message))
+            .collect()
+    }
+
+    #[test]
+    fn validation_names_the_missing_fields_of_a_new_install() {
+        assert_eq!(
+            issues(&FakeHost::new()),
+            [
+                (SERVER_URL.into(), "Enter your Komga server URL.".into()),
+                (
+                    API_KEY.into(),
+                    "Enter an API key, or a username and password.".into()
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn validation_accepts_what_the_plugin_can_connect_with() {
+        let api_key = FakeHost::new()
+            .setting(SERVER_URL, " HTTPS://komga.example.com/ ")
+            .setting(API_KEY, " key ");
+        assert!(issues(&api_key).is_empty());
+        let login = FakeHost::new()
+            .setting(SERVER_URL, "http://10.0.0.2:25600/komga")
+            .setting(USERNAME, "reader")
+            // A password made of spaces is a password, as it is when signing in.
+            .setting(PASSWORD, "  ");
+        assert!(issues(&login).is_empty());
+    }
+
+    #[test]
+    fn validation_points_at_the_half_of_a_login_that_is_missing() {
+        let no_password = FakeHost::new()
+            .setting(SERVER_URL, "https://komga.example.com")
+            .setting(USERNAME, "reader");
+        assert_eq!(
+            issues(&no_password),
+            [(
+                PASSWORD.into(),
+                "Enter the password for this username.".into()
+            )]
+        );
+        let no_username = FakeHost::new()
+            .setting(SERVER_URL, "https://komga.example.com")
+            .setting(USERNAME, "   ")
+            .setting(PASSWORD, "secret");
+        assert_eq!(
+            issues(&no_username),
+            [(
+                USERNAME.into(),
+                "Enter the username for this password.".into()
+            )]
+        );
+    }
+
+    #[test]
+    fn validation_rejects_urls_the_host_cannot_fetch_without_repeating_them() {
+        for raw in [
+            "komga.example.com",
+            "ftp://komga.example.com",
+            "https://",
+            "javascript:alert(1)",
+        ] {
+            let host = FakeHost::new()
+                .setting(SERVER_URL, raw)
+                .setting(API_KEY, "key");
+            let found = issues(&host);
+            assert_eq!(
+                found,
+                [(
+                    SERVER_URL.into(),
+                    "The server URL must start with http:// or https://.".into()
+                )],
+                "{raw}"
+            );
+        }
     }
 }
