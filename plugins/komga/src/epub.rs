@@ -330,12 +330,7 @@ pub fn parse_document(xhtml: &[u8], book_id: &str, spine_path: &str) -> Result<V
             }
             continue;
         }
-        if !closing
-            && matches!(
-                tag.as_str(),
-                "script" | "style" | "template" | "noscript" | "head"
-            )
-        {
+        if !closing && matches!(tag.as_str(), "script" | "style" | "template" | "head") {
             if !inside.ends_with('/') {
                 skipped.push(tag);
             }
@@ -385,9 +380,7 @@ pub fn parse_document(xhtml: &[u8], book_id: &str, spine_path: &str) -> Result<V
         }
     }
     flush_text(&mut text, &mut pages, pre_depth > 0)?;
-    if pages.is_empty() {
-        return Err(invalid_document());
-    }
+    // Blank spine documents are valid. The service rejects only an entirely empty book.
     Ok(pages)
 }
 
