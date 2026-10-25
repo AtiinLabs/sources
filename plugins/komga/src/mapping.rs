@@ -5,9 +5,9 @@
 use std::collections::HashSet;
 
 use ito_rs::models::manga::{Chapter, ContentRating, Manga, Status, Viewer};
-use ito_rs::models::{Page, PageContent};
+use ito_rs::models::{ContentKind, Page, PageContent};
 
-use crate::dto::{BookDto, SeriesDto};
+use crate::dto::{BookDto, MediaDto, SeriesDto};
 use crate::time;
 
 pub const PLUGIN_ID: &str = "com.atiinlabs.komga";
@@ -133,14 +133,24 @@ pub fn viewer_for(reading_direction: &str) -> Viewer {
 
 /// Whether Ito can read a book.
 ///
-/// Komga only serves pages for media it has analysed (`READY`) and whose files still exist,
-/// and a text EPUB has no page images at all. An EPUB whose pages are images
-/// (`epubDivinaCompatible`) and a PDF (rendered by Komga) are fine.
+/// READY books in known readable formats whose files still exist.
 pub fn is_readable(book: &BookDto) -> bool {
     let media = &book.media;
-    let text_epub =
-        media.media_profile.eq_ignore_ascii_case("EPUB") && !media.epub_divina_compatible;
-    !book.deleted && media.status.eq_ignore_ascii_case("READY") && !text_epub
+    let profile = media.media_profile.trim();
+    !book.deleted
+        && media.status.eq_ignore_ascii_case("READY")
+        && ["DIVINA", "PDF", "EPUB"]
+            .iter()
+            .any(|known| profile.eq_ignore_ascii_case(known))
+}
+
+/// Reflowable EPUBs use the text reader; image EPUBs, PDFs and archives use pages.
+pub fn chapter_kind(media: &MediaDto) -> ContentKind {
+    if media.media_profile.trim().eq_ignore_ascii_case("EPUB") && !media.epub_divina_compatible {
+        ContentKind::Text
+    } else {
+        ContentKind::Images
+    }
 }
 
 /// The readable books as chapters, newest first like Ito's other sources.
@@ -175,6 +185,7 @@ fn chapter(book: &BookDto) -> Chapter {
         url: None,
         lang: None,
         paywalled: None,
+        kind: chapter_kind(&book.media),
     }
 }
 
@@ -741,13 +752,26 @@ mod tests {
                     .unwrap()
             })
             .collect();
-        // v02 is a text EPUB and v04 is unsupported.
+        // Only v04 is unsupported; text EPUB v02 remains in the series' chapter order.
         assert_eq!(
             readable,
             [
                 "Vertical Rain v05",
                 "Vertical Rain v03",
+                "Vertical Rain v02",
                 "Vertical Rain v01"
+            ]
+        );
+        assert_eq!(
+            chapters
+                .iter()
+                .map(|chapter| chapter.kind)
+                .collect::<Vec<_>>(),
+            [
+                ContentKind::Images,
+                ContentKind::Images,
+                ContentKind::Text,
+                ContentKind::Images
             ]
         );
     }
@@ -774,15 +798,17 @@ mod tests {
     }
 
     #[test]
-    fn a_text_epub_is_not_readable_but_an_image_epub_is() {
+    fn text_and_image_epubs_are_readable_with_distinct_reader_kinds() {
         let text = book_json(json!({
             "id": "B", "media": { "status": "READY", "mediaProfile": "EPUB", "epubDivinaCompatible": false }
         }));
         let images = book_json(json!({
             "id": "B", "media": { "status": "READY", "mediaProfile": "EPUB", "epubDivinaCompatible": true }
         }));
-        assert!(!is_readable(&text));
+        assert!(is_readable(&text));
         assert!(is_readable(&images));
+        assert_eq!(chapter_kind(&text.media), ContentKind::Text);
+        assert_eq!(chapter_kind(&images.media), ContentKind::Images);
     }
 
     #[test]
@@ -792,6 +818,16 @@ mod tests {
                 "id": "B", "media": { "status": "READY", "mediaProfile": profile, "epubDivinaCompatible": false }
             }));
             assert!(is_readable(&book), "{profile}");
+        }
+    }
+
+    #[test]
+    fn ready_books_with_unknown_or_missing_formats_are_not_readable() {
+        for profile in ["", "UNKNOWN", "AUDIO", "VIDEO"] {
+            let book = book_json(json!({
+                "id": "B", "media": { "status": "READY", "mediaProfile": profile }
+            }));
+            assert!(!is_readable(&book));
         }
     }
 
@@ -815,13 +851,13 @@ mod tests {
     fn a_book_without_a_number_still_lists_after_the_numbered_ones() {
         let books = vec![
             book_json(
-                json!({ "id": "A", "media": { "status": "READY" }, "metadata": { "numberSort": 1.0 } }),
+                json!({ "id": "A", "media": { "status": "READY", "mediaProfile": "DIVINA" }, "metadata": { "numberSort": 1.0 } }),
             ),
             book_json(
-                json!({ "id": "X", "media": { "status": "READY" }, "metadata": { "numberSort": null } }),
+                json!({ "id": "X", "media": { "status": "READY", "mediaProfile": "DIVINA" }, "metadata": { "numberSort": null } }),
             ),
             book_json(
-                json!({ "id": "B", "media": { "status": "READY" }, "metadata": { "numberSort": 2.0 } }),
+                json!({ "id": "B", "media": { "status": "READY", "mediaProfile": "DIVINA" }, "metadata": { "numberSort": 2.0 } }),
             ),
         ];
         let chapters = chapters(&books);
@@ -833,13 +869,13 @@ mod tests {
     fn books_with_the_same_number_keep_a_stable_order() {
         let books = vec![
             book_json(
-                json!({ "id": "first", "media": { "status": "READY" }, "metadata": { "numberSort": 1.0 } }),
+                json!({ "id": "first", "media": { "status": "READY", "mediaProfile": "DIVINA" }, "metadata": { "numberSort": 1.0 } }),
             ),
             book_json(
-                json!({ "id": "second", "media": { "status": "READY" }, "metadata": { "numberSort": 1.0 } }),
+                json!({ "id": "second", "media": { "status": "READY", "mediaProfile": "DIVINA" }, "metadata": { "numberSort": 1.0 } }),
             ),
             book_json(
-                json!({ "id": "third", "media": { "status": "READY" }, "metadata": { "numberSort": 2.0 } }),
+                json!({ "id": "third", "media": { "status": "READY", "mediaProfile": "DIVINA" }, "metadata": { "numberSort": 2.0 } }),
             ),
         ];
         // Newest first: the later book of a tie is listed first, and the order is repeatable.

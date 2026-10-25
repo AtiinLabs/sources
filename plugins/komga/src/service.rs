@@ -5,7 +5,7 @@
 use ito_rs::Result;
 use ito_rs::models::manga::{Chapter, Manga, PageResult};
 use ito_rs::models::{
-    HomeComponent, HomeComponentValue, HomeLayout, Listing, Page, PluginImageRequest,
+    ContentKind, HomeComponent, HomeComponentValue, HomeLayout, Listing, Page, PluginImageRequest,
 };
 
 use crate::api::{self, Client, SeriesQuery};
@@ -195,9 +195,40 @@ pub fn manga_update(
     Ok(manga)
 }
 
-/// Chapter pages use plugin-owned locators, with credentials resolved only when loaded.
+/// Chapter content uses plugin-owned locators; credentials are resolved only when loaded.
 pub fn page_list(host: &impl Host, chapter: &Chapter) -> Result<Vec<Page>> {
+    api::validate_book_key(&chapter.key)?;
     let client = Client::connect(host)?;
+    if chapter.kind == ContentKind::Text {
+        let manifest = client.epub_manifest(&chapter.key)?;
+        if manifest.reading_order.is_empty() {
+            return Err(ito_rs::Error::Host(
+                "Komga sent an EPUB with no reading order.".into(),
+            ));
+        }
+        // Validate the whole spine before requesting any resource. Manifest URLs are never followed.
+        let paths = manifest
+            .reading_order
+            .iter()
+            .map(|link| crate::epub::spine_path(&link.href, &chapter.key))
+            .collect::<Result<Vec<_>>>()?;
+        let mut content = Vec::new();
+        for path in paths {
+            let xhtml = client.epub_resource(&chapter.key, &path)?;
+            let pages = host.parse_epub_document(&xhtml, &chapter.key, &path)?;
+            for mut page in pages {
+                page.index = i32::try_from(content.len())
+                    .map_err(|_| ito_rs::Error::Host("Komga EPUB has too much content.".into()))?;
+                content.push(page);
+            }
+        }
+        if content.is_empty() {
+            return Err(ito_rs::Error::Host(
+                "Komga EPUB contains no readable content.".into(),
+            ));
+        }
+        return Ok(content);
+    }
     let pages = client.book_pages(&chapter.key)?;
     Ok(pages
         .iter()
@@ -287,7 +318,7 @@ fn book_cards(page: Paged<BookDto>, base: &str) -> Vec<Manga> {
     let cards = page
         .content
         .iter()
-        .filter(|book| !book.deleted)
+        .filter(|book| mapping::is_readable(book))
         .filter_map(|book| mapping::series_stub(book, base))
         .collect();
     mapping::dedupe(cards)
@@ -478,8 +509,9 @@ mod tests {
     fn a_trashed_book_does_not_put_its_series_in_keep_reading() {
         let page: Paged<BookDto> = serde_json::from_value(json!({
             "content": [
-                { "id": "B1", "seriesId": "S1", "seriesTitle": "Gone", "deleted": true },
-                { "id": "B2", "seriesId": "S2", "seriesTitle": "Here" }
+                { "id": "B1", "seriesId": "S1", "seriesTitle": "Gone", "deleted": true, "media": { "status": "READY", "mediaProfile": "DIVINA" } },
+                { "id": "B2", "seriesId": "S2", "seriesTitle": "Here", "media": { "status": "READY", "mediaProfile": "DIVINA" } },
+                { "id": "B3", "seriesId": "S3", "seriesTitle": "Unsupported", "media": { "status": "UNSUPPORTED", "mediaProfile": "" } }
             ],
             "last": true
         }))
@@ -847,6 +879,7 @@ mod tests {
             url: None,
             lang: None,
             paywalled: None,
+            kind: ContentKind::Images,
         });
 
         let manga = manga_update(&host, saved, true, false).unwrap();
@@ -896,7 +929,36 @@ mod tests {
             url: None,
             lang: None,
             paywalled: None,
+            kind: ContentKind::Images,
         }
+    }
+
+    #[test]
+    fn an_invalid_text_spine_is_refused_before_any_resource_is_requested() {
+        let host = FakeHost::configured().json(
+            Method::Get,
+            "/api/v1/books/B/manifest/epub",
+            r#"{"readingOrder":[
+                {"href":"/api/v1/books/B/resource/EPUB/one.xhtml"},
+                {"href":"/api/v1/books/B/resource/EPUB/%2e%2e/two.xhtml"}
+            ]}"#,
+        );
+        let mut chapter = chapter("B");
+        chapter.kind = ContentKind::Text;
+        assert!(page_list(&host, &chapter).is_err());
+        assert_eq!(host.requests().len(), 1);
+    }
+
+    #[test]
+    fn an_epub_without_a_reading_order_is_not_an_empty_success() {
+        let host = FakeHost::configured().json(
+            Method::Get,
+            "/api/v1/books/B/manifest/epub",
+            r#"{"readingOrder":[]}"#,
+        );
+        let mut chapter = chapter("B");
+        chapter.kind = ContentKind::Text;
+        assert!(page_list(&host, &chapter).is_err());
     }
 
     #[test]
