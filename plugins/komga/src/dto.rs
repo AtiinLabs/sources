@@ -153,11 +153,64 @@ pub struct PageDto {
     pub number: i32,
 }
 
+/// The EPUB Web Publication manifest fields needed to read documents in spine order.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WebPubManifestDto {
+    pub reading_order: Vec<WebPubLinkDto>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WebPubLinkDto {
+    pub href: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::testing::fixtures;
     use serde_json::json;
+
+    #[test]
+    fn reading_order_preserves_server_order_and_ignores_optional_metadata() {
+        let manifest: WebPubManifestDto = serde_json::from_str(
+            r#"{
+                "metadata":{"title":"A book","unknown":true},
+                "readingOrder":[
+                    {"href":"/api/v1/books/B1/resource/z.xhtml","type":"application/xhtml+xml"},
+                    {"href":"/api/v1/books/B1/resource/a.xhtml","properties":{"page":"left"}}
+                ],
+                "resources":[{"href":"cover.jpg"}]
+            }"#,
+        )
+        .unwrap();
+        let hrefs: Vec<&str> = manifest
+            .reading_order
+            .iter()
+            .map(|link| link.href.as_str())
+            .collect();
+        assert_eq!(
+            hrefs,
+            [
+                "/api/v1/books/B1/resource/z.xhtml",
+                "/api/v1/books/B1/resource/a.xhtml",
+            ]
+        );
+    }
+
+    #[test]
+    fn reading_order_and_each_href_are_required_and_typed() {
+        for payload in [
+            r#"{}"#,
+            r#"{"readingOrder":null}"#,
+            r#"{"readingOrder":{}}"#,
+            r#"{"readingOrder":[{}]}"#,
+            r#"{"readingOrder":[{"href":null}]}"#,
+            r#"{"readingOrder":[{"href":1}]}"#,
+        ] {
+            assert!(serde_json::from_str::<WebPubManifestDto>(payload).is_err());
+        }
+    }
 
     fn series_page(fixture: &str) -> Paged<SeriesDto> {
         serde_json::from_str(fixture).unwrap()

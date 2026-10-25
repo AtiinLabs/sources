@@ -28,14 +28,15 @@ Reads the libraries of your own Komga server.
 2. Open it in Browse and tap the settings button.
 3. Enter your **Server URL** (for example `https://komga.example.com`) and an **API key**. Create the key in Komga under *Account settings → API keys*. If you would rather sign in with an account, leave the API key empty and fill in **Username** and **Password**; an API key wins when both are set.
 
-The API key and password are stored as secrets, and a change in the settings applies to the next request without reinstalling the plugin. The plugin needs Komga 1.19 or later (1.20 for API keys) and is tested against Komga 1.29.
+The API key and password are stored as secrets, and a change in the settings applies to the next request without reinstalling the plugin. Komga 1.1.0 requires Ito 1.3.0 or later (plugin ABI 2). The plugin needs Komga 1.19 or later (1.20 for API keys) and metadata fixtures were captured from Komga 1.29.
 
 What it does:
 
 - **Home**: Keep reading, On deck, Recently added, Recently updated and All series, plus one section per library when the server has several. Empty sections are left out.
 - **Browse and search**: every library, and full-text search across the series you can see.
 - **Details**: title, summary, authors (writers and pencillers), genres and tags, status and reading direction.
-- **Chapters**: a series' books, newest first. Books Komga has not analysed, books whose files are gone, and text EPUBs (which have no page images) are left out; image archives, PDFs and image-based EPUBs are readable.
+- **Chapters**: a series' books, newest first. Books Komga has not analysed, unsupported formats and books whose files are gone are left out. Image archives, PDFs and image-based EPUBs use the page reader; reflowable text EPUBs use the text reader. A series can mix these formats without changing its saved identity.
+- **Text EPUBs**: follows the WebPub manifest's reading order, preserves text and inline-image order, and loads images through the same credential-isolated image path. Resource paths are confined to the book on your configured server. Text conversion retains paragraphs and preformatted whitespace, not the EPUB's CSS layout, scripting or interactive content.
 - **Covers and pages** use stable, plugin-owned `ito://` locators and your current credentials, so a server-address change needs no plugin reinstall. Hosts supporting native image requests fetch bytes outside WASM using transient URL/header descriptors and the configured server origin; older hosts retain the legacy byte handler. Credentials are not stored in page metadata.
 
 - **Read completion**: exposes an idempotent book-completion notification for supporting hosts. It sends only `completed: true`; partial-page updates, unread/reset operations, and other user metadata are not sent. Durable retries and confirmation after account/settings changes belong to the host. Older hosts remain read-only.
@@ -48,7 +49,7 @@ You need Rust with the WebAssembly target and `ito-pkg`, pinned to the revision 
 
 ```sh
 rustup target add wasm32-unknown-unknown
-cargo install --git https://github.com/AtiinLabs/ito-pkg --rev cde8969873d09db50fe33f1e82754b8e7fcd946c --locked
+cargo install --git https://github.com/AtiinLabs/ito-pkg --rev 96504ce21eba53a0a3ae6664821b3bce52b229e0 --locked
 ```
 
 Then, in a plugin's directory:

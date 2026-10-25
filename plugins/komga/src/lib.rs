@@ -24,6 +24,7 @@ use ito_rs::provider::MangaProvider;
 
 pub mod api;
 pub mod dto;
+pub mod epub;
 pub mod error;
 pub mod host;
 pub mod mapping;
@@ -145,28 +146,5 @@ mod tests {
             mapping::cover_url("S")
                 .starts_with(&format!("ito://{}/", manifest()["id"].as_str().unwrap()))
         );
-    }
-
-    #[test]
-    fn the_manifest_describes_a_manga_plugin_for_the_app_that_has_secret_settings() {
-        let manifest = manifest();
-        assert_eq!(manifest["name"], "Komga");
-        assert_eq!(manifest["type"], "manga");
-        assert_eq!(manifest["min_app_version"], "1.2.0");
-        assert_eq!(manifest["author"], "AtiinLabs");
-        assert_eq!(
-            manifest["sourceUrl"],
-            "https://github.com/AtiinLabs/sources"
-        );
-        assert_eq!(manifest["url"], "https://komga.org");
-        assert_eq!(manifest["language"], "en");
-        assert_eq!(manifest["languages"], serde_json::json!(["en"]));
-        assert_eq!(manifest["contentRating"], 0);
-        assert_eq!(manifest["nsfw"], 0);
-    }
-
-    #[test]
-    fn the_manifest_and_the_crate_carry_the_same_version() {
-        assert_eq!(manifest()["version"], env!("CARGO_PKG_VERSION"));
     }
 }

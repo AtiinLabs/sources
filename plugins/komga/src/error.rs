@@ -146,6 +146,23 @@ mod tests {
     }
 
     #[test]
+    fn sdk_errors_propagate_through_api_results_without_losing_their_type() {
+        fn propagate(result: ito_rs::Result<()>) -> Result<()> {
+            result?;
+            Ok(())
+        }
+        assert!(matches!(
+            propagate(Err(Error::Unsupported)),
+            Err(Failure::Other(Error::Unsupported))
+        ));
+        let error: Error = propagate(Err(Error::Host("Invalid EPUB resource path.".into())))
+            .unwrap_err()
+            .into();
+        assert!(matches!(error, Error::Host(_)));
+        assert_eq!(message(error), "Invalid EPUB resource path.");
+    }
+
+    #[test]
     fn success_statuses_pass() {
         for status in [200, 201, 204, 299] {
             assert!(check_status(status, &api_key()).is_ok(), "{status}");
@@ -181,9 +198,7 @@ mod tests {
         for status in [500, 502, 503, 599] {
             assert_eq!(
                 message(check_status(status, &api_key()).unwrap_err()),
-                format!(
-                    "Komga had a server error (HTTP {status}). Try again later."
-                )
+                format!("Komga had a server error (HTTP {status}). Try again later.")
             );
         }
         for status in [301, 400, 418] {
@@ -201,11 +216,23 @@ mod tests {
 
         assert_eq!(category(not_configured()), ErrorCategory::NeedsSetup);
         assert_eq!(category(missing_credentials()), ErrorCategory::NeedsSetup);
-        assert_eq!(category(check_status(401, &api_key()).unwrap_err()), ErrorCategory::Unauthorized);
-        assert_eq!(category(check_status(403, &api_key()).unwrap_err()), ErrorCategory::Unauthorized);
+        assert_eq!(
+            category(check_status(401, &api_key()).unwrap_err()),
+            ErrorCategory::Unauthorized
+        );
+        assert_eq!(
+            category(check_status(403, &api_key()).unwrap_err()),
+            ErrorCategory::Unauthorized
+        );
         assert_eq!(category(unreachable()), ErrorCategory::Network);
-        assert_eq!(category(check_status(404, &api_key()).unwrap_err()), ErrorCategory::NotFound);
-        assert_eq!(category(check_status(503, &api_key()).unwrap_err()), ErrorCategory::Server);
+        assert_eq!(
+            category(check_status(404, &api_key()).unwrap_err()),
+            ErrorCategory::NotFound
+        );
+        assert_eq!(
+            category(check_status(503, &api_key()).unwrap_err()),
+            ErrorCategory::Server
+        );
         assert_eq!(category(unreadable_response()), ErrorCategory::Other);
         assert_eq!(
             message(unreachable()),

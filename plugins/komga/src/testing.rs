@@ -176,4 +176,13 @@ impl Host for FakeHost {
             Outcome::Fail => Err(Error::Net("connection failed".to_owned())),
         }
     }
+
+    fn parse_epub_document(
+        &self,
+        _xhtml: &[u8],
+        _book_id: &str,
+        _spine_path: &str,
+    ) -> Result<Vec<ito_rs::models::Page>> {
+        panic!("HTML conversion is exercised in the real WASM/SwiftSoup smoke, not the native fake")
+    }
 }

@@ -9,7 +9,7 @@ use ito_rs::net::NetResponse;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
-use crate::dto::{BookDto, LibraryDto, PageDto, Paged, SeriesDto};
+use crate::dto::{BookDto, LibraryDto, PageDto, Paged, SeriesDto, WebPubManifestDto};
 use crate::error::{self, Result};
 use crate::host::{Host, HttpRequest, Method};
 use crate::settings::{Auth, Settings};
@@ -142,6 +142,25 @@ impl<'h, H: Host> Client<'h, H> {
         self.get_json(&format!("/api/v1/books/{book_id}/pages"))
     }
 
+    /// The ordered text resources of an EPUB; manifest links are never followed as URLs.
+    pub fn epub_manifest(&self, book_id: &str) -> Result<WebPubManifestDto> {
+        validate_book_key(book_id)?;
+        parse(&self.execute(
+            Method::Get,
+            format_args!("/api/v1/books/{book_id}/manifest/epub"),
+            "application/webpub+json, application/json",
+            None,
+        )?)
+    }
+
+    /// Fetches a decoded EPUB-internal path from the configured server only.
+    pub fn epub_resource(&self, book_id: &str, resource_path: &str) -> Result<Vec<u8>> {
+        validate_book_key(book_id)?;
+        let path = crate::epub::resource_api_path(book_id, resource_path)?;
+        let response = self.execute(Method::Get, path, "application/xhtml+xml,text/html", None)?;
+        Ok(response.body)
+    }
+
     /// Fetches an image by its path relative to the server, e.g.
     /// `api/v1/series/{id}/thumbnail`. See [`image_path`] for what is accepted.
     pub fn image(&self, path: &str) -> Result<Vec<u8>> {
@@ -166,6 +185,19 @@ impl<'h, H: Host> Client<'h, H> {
         accept: &str,
         body: Option<Vec<u8>>,
     ) -> Result<NetResponse> {
+        let response = self.execute_response(method, path, accept, body)?;
+        error::check_status(response.status, &self.auth)?;
+        Ok(response)
+    }
+
+    /// Sends a request without interpreting its status, for endpoint-specific status handling.
+    fn execute_response(
+        &self,
+        method: Method,
+        path: impl std::fmt::Display,
+        accept: &str,
+        body: Option<Vec<u8>>,
+    ) -> Result<NetResponse> {
         let (auth_name, auth_value) = self.auth.header();
         let mut headers = vec![
             (auth_name.to_owned(), auth_value),
@@ -180,15 +212,30 @@ impl<'h, H: Host> Client<'h, H> {
             headers,
             body,
         };
-        let response = self.host.send(&request).map_err(|_| error::unreachable())?;
-        error::check_status(response.status, &self.auth)?;
-        Ok(response)
+        self.host.send(&request).map_err(|_| error::unreachable())
     }
 }
 
 /// Completes one book without sending a page number or changing any other user metadata.
 /// Validate the opaque key as one URL-safe token before reading credentials or making a request.
 pub fn complete_book(host: &impl Host, book_key: &str) -> Result<()> {
+    validate_book_key(book_key)?;
+    let client = Client::connect(host)?;
+    let response = client.execute_response(
+        Method::Patch,
+        format_args!("/api/v1/books/{book_key}/read-progress"),
+        "application/json",
+        Some(br#"{"completed":true}"#.to_vec()),
+    )?;
+    if response.status == 400 {
+        return Err(ito_rs::Error::Unsupported.into());
+    }
+    error::check_status(response.status, &client.auth)?;
+    Ok(())
+}
+
+/// Checks an opaque book identifier before a caller loads or attaches credentials.
+pub(crate) fn validate_book_key(book_key: &str) -> Result<()> {
     if book_key.is_empty()
         || matches!(book_key, "." | "..")
         || !book_key
@@ -197,13 +244,6 @@ pub fn complete_book(host: &impl Host, book_key: &str) -> Result<()> {
     {
         return Err(error::invalid_book_key());
     }
-    let client = Client::connect(host)?;
-    client.execute(
-        Method::Patch,
-        format_args!("/api/v1/books/{book_key}/read-progress"),
-        "application/json",
-        Some(br#"{"completed":true}"#.to_vec()),
-    )?;
     Ok(())
 }
 
@@ -251,6 +291,249 @@ mod tests {
     }
 
     #[test]
+    fn epub_requests_preserve_base_prefix_auth_accept_and_resource_bytes() {
+        let resource = [0xEF, 0xBB, 0xBF, b'<', 0xFF, 0, b'>'];
+        let host = FakeHost::configured()
+            .setting("server_url", "https://proxy.test/komga/")
+            .respond(
+                Method::Get,
+                "https://proxy.test/komga/api/v1/books/B_1-2.~/manifest/epub",
+                200,
+                r#"{"readingOrder":[{"href":"https://untrusted.test/api/v1/books/B_1-2.~/resource/ch.xhtml"}],"metadata":{"title":"Ignored"}}"#,
+            )
+            .respond(
+                Method::Get,
+                "https://proxy.test/komga/api/v1/books/B_1-2.~/resource/OEBPS/Text/ch%201%23%3F.xhtml",
+                200,
+                resource,
+            );
+        let client = Client::connect(&host).unwrap();
+        let manifest = client.epub_manifest("B_1-2.~").unwrap();
+        assert_eq!(manifest.reading_order.len(), 1);
+        assert_eq!(
+            manifest.reading_order[0].href,
+            "https://untrusted.test/api/v1/books/B_1-2.~/resource/ch.xhtml"
+        );
+        assert_eq!(
+            client
+                .epub_resource("B_1-2.~", "OEBPS/Text/ch 1#?.xhtml")
+                .unwrap(),
+            resource
+        );
+        let requests = host.requests();
+        assert_eq!(requests.len(), 2);
+        for request in &requests {
+            assert_eq!(request.method, Method::Get);
+            assert_eq!(header(request, "X-API-Key"), Some("test-api-key"));
+            assert_eq!(header(request, "Authorization"), None);
+            assert_eq!(header(request, "Content-Type"), None);
+            assert!(request.body.is_none());
+        }
+        assert_eq!(
+            header(&requests[0], "Accept"),
+            Some("application/webpub+json, application/json")
+        );
+        assert_eq!(
+            header(&requests[1], "Accept"),
+            Some("application/xhtml+xml,text/html")
+        );
+    }
+
+    #[test]
+    fn epub_endpoints_support_basic_auth_without_api_key_headers() {
+        let host = FakeHost::new()
+            .setting("server_url", BASE)
+            .setting("username", "user")
+            .setting("password", "pass")
+            .json(
+                Method::Get,
+                "/api/v1/books/B1/manifest/epub",
+                r#"{"readingOrder":[]}"#,
+            )
+            .json(Method::Get, "/api/v1/books/B1/resource/ch.xhtml", "<html/>");
+        let client = Client::connect(&host).unwrap();
+        client.epub_manifest("B1").unwrap();
+        client.epub_resource("B1", "ch.xhtml").unwrap();
+        for request in host.requests() {
+            assert_eq!(
+                header(&request, "Authorization"),
+                Some("Basic dXNlcjpwYXNz")
+            );
+            assert_eq!(header(&request, "X-API-Key"), None);
+        }
+    }
+
+    #[test]
+    fn epub_endpoints_refuse_keys_and_paths_that_could_widen_the_request_target() {
+        let host = FakeHost::configured();
+        let client = Client::connect(&host).unwrap();
+        for key in [
+            "",
+            ".",
+            "..",
+            "../B",
+            "B/other",
+            "B%2fother",
+            "B?secret",
+            "B#x",
+            "https://untrusted.test/B",
+            "//untrusted.test/B",
+            "B\\other",
+            "B\r\n",
+        ] {
+            assert!(client.epub_manifest(key).is_err());
+            assert!(client.epub_resource(key, "ch.xhtml").is_err());
+        }
+        for path in [
+            "",
+            "../ch.xhtml",
+            "OEBPS/../../ch.xhtml",
+            "/ch.xhtml",
+            "https://untrusted.test/ch.xhtml",
+            "//untrusted.test/ch.xhtml",
+            "OEBPS\\ch.xhtml",
+            "OEBPS/./ch.xhtml",
+            "OEBPS/\0.xhtml",
+        ] {
+            assert!(client.epub_resource("B1", path).is_err());
+        }
+        assert!(host.requests().is_empty());
+    }
+
+    #[test]
+    fn malformed_epub_manifests_are_sanitized_instead_of_becoming_an_empty_spine() {
+        for body in [
+            r#"{"metadata":{"title":"private-content"}}"#,
+            r#"{"readingOrder":null}"#,
+            r#"{"readingOrder":[{"type":"application/xhtml+xml"}]}"#,
+            "<html>private-content</html>",
+        ] {
+            let host =
+                FakeHost::configured().json(Method::Get, "/api/v1/books/B1/manifest/epub", body);
+            let error: Error = Client::connect(&host)
+                .unwrap()
+                .epub_manifest("B1")
+                .unwrap_err()
+                .into();
+            assert!(matches!(error, Error::Host(_)));
+            assert_eq!(
+                message(error),
+                "Komga sent a response Ito couldn't read. Check that the server URL points to Komga."
+            );
+        }
+    }
+
+    #[test]
+    fn only_completion_maps_bad_request_to_unsupported() {
+        let host = FakeHost::configured()
+            .respond(
+                Method::Patch,
+                "https://komga.test/api/v1/books/B1/read-progress",
+                400,
+                "private-content",
+            )
+            .respond(
+                Method::Get,
+                "https://komga.test/api/v1/books/B1/manifest/epub",
+                400,
+                "private-content",
+            )
+            .respond(
+                Method::Get,
+                "https://komga.test/api/v1/books/B1/resource/ch.xhtml",
+                400,
+                "private-content",
+            )
+            .respond(
+                Method::Get,
+                "https://komga.test/api/v1/libraries",
+                400,
+                "private-content",
+            );
+        assert!(matches!(
+            complete_book(&host, "B1"),
+            Err(error::Failure::Other(Error::Unsupported))
+        ));
+        let client = Client::connect(&host).unwrap();
+        for error in [
+            client.epub_manifest("B1").unwrap_err(),
+            client.epub_resource("B1", "ch.xhtml").unwrap_err(),
+            client.libraries().unwrap_err(),
+        ] {
+            assert_eq!(
+                message(error),
+                "Komga returned an unexpected response (HTTP 400)."
+            );
+        }
+    }
+
+    #[test]
+    fn completion_and_epub_requests_preserve_other_statuses_and_network_errors() {
+        for status in [401, 403, 404, 500] {
+            let host = FakeHost::configured()
+                .respond(
+                    Method::Patch,
+                    "https://komga.test/api/v1/books/B1/read-progress",
+                    status,
+                    "private-content",
+                )
+                .respond(
+                    Method::Get,
+                    "https://komga.test/api/v1/books/B1/manifest/epub",
+                    status,
+                    "private-content",
+                )
+                .respond(
+                    Method::Get,
+                    "https://komga.test/api/v1/books/B1/resource/ch.xhtml",
+                    status,
+                    "private-content",
+                );
+            let client = Client::connect(&host).unwrap();
+            let expected: Error = error::check_status(status, &Auth::ApiKey("test-api-key".into()))
+                .unwrap_err()
+                .into();
+            let expected_category = expected.category();
+            let expected_message = message(expected);
+            for error in [
+                complete_book(&host, "B1").unwrap_err(),
+                client.epub_manifest("B1").unwrap_err(),
+                client.epub_resource("B1", "ch.xhtml").unwrap_err(),
+            ] {
+                let actual: Error = error.into();
+                assert_eq!(actual.category(), expected_category);
+                assert_eq!(message(actual), expected_message);
+            }
+        }
+        let host = FakeHost::configured()
+            .fail(
+                Method::Patch,
+                "https://komga.test/api/v1/books/B1/read-progress",
+            )
+            .fail(
+                Method::Get,
+                "https://komga.test/api/v1/books/B1/manifest/epub",
+            )
+            .fail(
+                Method::Get,
+                "https://komga.test/api/v1/books/B1/resource/ch.xhtml",
+            );
+        let client = Client::connect(&host).unwrap();
+        for error in [
+            complete_book(&host, "B1").unwrap_err(),
+            client.epub_manifest("B1").unwrap_err(),
+            client.epub_resource("B1", "ch.xhtml").unwrap_err(),
+        ] {
+            let actual: Error = error.into();
+            assert_eq!(actual.category(), ErrorCategory::Network);
+            assert_eq!(
+                message(actual),
+                "Couldn't connect to Komga. Check the server URL and that the server is running."
+            );
+        }
+    }
+
+    #[test]
     fn completing_a_book_accepts_an_empty_204_and_never_sends_a_lower_page() {
         let host = FakeHost::configured()
             .setting("server_url", "https://proxy.test/komga/")
@@ -269,7 +552,10 @@ mod tests {
             "https://proxy.test/komga/api/v1/books/B_1-2.~/read-progress"
         );
         assert_eq!(body_json(&requests[0]), json!({ "completed": true }));
-        assert_eq!(header(&requests[0], "Content-Type"), Some("application/json"));
+        assert_eq!(
+            header(&requests[0], "Content-Type"),
+            Some("application/json")
+        );
     }
 
     #[test]
@@ -726,7 +1012,11 @@ mod tests {
             401,
             r#"{"status":401,"error":"Unauthorized"}"#,
         );
-        let error: Error = Client::connect(&host).unwrap().libraries().unwrap_err().into();
+        let error: Error = Client::connect(&host)
+            .unwrap()
+            .libraries()
+            .unwrap_err()
+            .into();
         assert_eq!(error.category(), ErrorCategory::Unauthorized);
         assert_eq!(message(error), "Komga rejected the API key (HTTP 401).");
     }
@@ -748,7 +1038,11 @@ mod tests {
     #[test]
     fn a_failed_connection_is_reported_without_internals() {
         let host = FakeHost::configured().fail(Method::Get, "https://komga.test/api/v1/libraries");
-        let error: Error = Client::connect(&host).unwrap().libraries().unwrap_err().into();
+        let error: Error = Client::connect(&host)
+            .unwrap()
+            .libraries()
+            .unwrap_err()
+            .into();
         assert_eq!(error.category(), ErrorCategory::Network);
         assert_eq!(
             message(error),
@@ -764,7 +1058,11 @@ mod tests {
             500,
             "FFI Error in net_fetch_v2: secret-token-in-url",
         );
-        let error: Error = Client::connect(&host).unwrap().libraries().unwrap_err().into();
+        let error: Error = Client::connect(&host)
+            .unwrap()
+            .libraries()
+            .unwrap_err()
+            .into();
         assert_eq!(error.category(), ErrorCategory::Server);
         let text = message(error);
         assert!(text.contains("HTTP 500"));

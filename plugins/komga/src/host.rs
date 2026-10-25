@@ -5,6 +5,7 @@
 //! scripted fake and never need the runtime.
 
 use ito_rs::Result;
+use ito_rs::models::Page;
 use ito_rs::net::{NetResponse, Request};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +41,14 @@ pub trait Host {
 
     /// Performs the request. A response with an error status is still `Ok`.
     fn send(&self, request: &HttpRequest) -> Result<NetResponse>;
+
+    /// Parses a spine document through Ito's HTML host. Native service tests do not invoke it.
+    fn parse_epub_document(
+        &self,
+        xhtml: &[u8],
+        book_id: &str,
+        spine_path: &str,
+    ) -> Result<Vec<Page>>;
 }
 
 /// The real host: Ito's runtime, reached through `ito-rs`.
@@ -59,5 +68,14 @@ impl Host for ItoHost {
             outgoing.body(body);
         }
         outgoing.send()
+    }
+
+    fn parse_epub_document(
+        &self,
+        xhtml: &[u8],
+        book_id: &str,
+        spine_path: &str,
+    ) -> Result<Vec<Page>> {
+        crate::epub::parse_document(xhtml, book_id, spine_path)
     }
 }
