@@ -11,8 +11,12 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # The ito-pkg revision that packs the plugins and builds the repository index.
-  ITO_PKG_REV: 96504ce21eba53a0a3ae6664821b3bce52b229e0
+  # The ito-pkg revision that packs the plugins, verifies the packages and builds the repository
+  # index: the strict-packaging release.
+  ITO_PKG_REV: 1be6c19e2e96199b09db5bff7b541774693185a5
+  # Optional. When set to an ABI number, `ito-pkg pack` (through its environment variable) and
+  # `ito-pkg verify` (through `--expect-abi`) fail for any plugin built for a different ABI.
+  # ITO_EXPECTED_ABI: "3"
 
 jobs:
   build:
@@ -73,8 +77,18 @@ jobs:
             echo "::endgroup::"
           done
 
+      - name: Verify Packages
+        run: |
+          set -euo pipefail
+          for package in staging/*.ito; do
+            echo "::group::ito-pkg verify $package"
+            ito-pkg verify "$package" ${ITO_EXPECTED_ABI:+--expect-abi "$ITO_EXPECTED_ABI"}
+            echo "::endgroup::"
+          done
+
       - name: Build Repository Index
         run: |
+          set -euo pipefail
           ito-pkg repo \
             --input staging \
             --output build \
