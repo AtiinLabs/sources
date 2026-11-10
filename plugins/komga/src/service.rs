@@ -870,16 +870,8 @@ mod tests {
         let mut saved = saved_manga();
         saved.chapters = Some(mapping::chapters(&[]));
         saved.chapters.as_mut().unwrap().push(Chapter {
-            key: "kept".into(),
-            title: None,
-            volume: None,
             chapter: Some(1.0),
-            date_updated: None,
-            scanlator: None,
-            url: None,
-            lang: None,
-            paywalled: None,
-            kind: ContentKind::Images,
+            ..Chapter::new("kept", ContentKind::Images)
         });
 
         let manga = manga_update(&host, saved, true, false).unwrap();
@@ -920,16 +912,8 @@ mod tests {
 
     fn chapter(key: &str) -> Chapter {
         Chapter {
-            key: key.into(),
-            title: None,
-            volume: None,
             chapter: Some(1.0),
-            date_updated: None,
-            scanlator: None,
-            url: None,
-            lang: None,
-            paywalled: None,
-            kind: ContentKind::Images,
+            ..Chapter::new(key, ContentKind::Images)
         }
     }
 

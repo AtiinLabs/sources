@@ -58,6 +58,7 @@ pub fn series_to_manga(series: &SeriesDto, base: &str) -> Manga {
         nsfw: 0,
         viewer: viewer_for(&metadata.reading_direction),
         chapters: None,
+        catalog: None,
     }
 }
 
@@ -81,6 +82,7 @@ pub fn series_stub(book: &BookDto, base: &str) -> Option<Manga> {
         nsfw: 0,
         viewer: Viewer::Default,
         chapters: None,
+        catalog: None,
     })
 }
 
@@ -169,48 +171,48 @@ pub fn chapters(books: &[BookDto]) -> Vec<Chapter> {
 }
 
 /// Unnumbered chapters sort below every numbered one.
-fn sort_key(chapter: &Chapter) -> f32 {
-    chapter.chapter.unwrap_or(f32::NEG_INFINITY)
+fn sort_key(chapter: &Chapter) -> f64 {
+    chapter.chapter.unwrap_or(f64::NEG_INFINITY)
 }
 
 fn chapter(book: &BookDto) -> Chapter {
-    let number = book.metadata.number_sort;
+    let number = book
+        .metadata
+        .number_sort
+        .filter(|number| number.is_finite() && number.abs() <= ito_rs::catalog::MAX_ABS_NUMBER);
     Chapter {
-        key: book.id.clone(),
         title: chapter_title(&book.metadata.title, number),
-        volume: None,
-        chapter: number.map(|number| number as f32),
+        chapter: number,
         date_updated: chapter_date(book),
-        scanlator: None,
-        url: None,
-        lang: None,
-        paywalled: None,
-        kind: chapter_kind(&book.media),
+        ..Chapter::new(book.id.clone(), chapter_kind(&book.media))
     }
 }
 
-/// The release date if Komga knows it, otherwise when the file was added.
+/// The release date if Komga knows it and it fits the SDK, otherwise a valid added date.
 fn chapter_date(book: &BookDto) -> Option<f64> {
+    let within_limit = |date: f64| date.is_finite() && date.abs() <= ito_rs::catalog::MAX_ABS_DATE;
     book.metadata
         .release_date
         .as_deref()
         .and_then(time::epoch_seconds)
-        .or_else(|| time::epoch_seconds(&book.created))
+        .filter(|date| within_limit(*date))
+        .or_else(|| time::epoch_seconds(&book.created).filter(|date| within_limit(*date)))
 }
 
-/// A book's title, unless it only restates the number.
+/// A book's title, unless it only restates the number or exceeds the SDK limit.
 ///
 /// Ito shows a chapter's title, or "Chapter N" when it has none. A title that says no more
 /// than "1", "#1" or "Chapter 1" would hide nothing and add nothing, so it is dropped; any
 /// other title ("Vol. 1", "Night Harbor v01", "Chapter 1: The Dock") is kept as written.
 fn chapter_title(title: &str, number: Option<f64>) -> Option<String> {
-    let title = non_blank(title)?;
+    let title = non_blank(title).filter(|title| title.len() <= ito_rs::catalog::MAX_TITLE_BYTES)?;
     if restates_number(title, number) {
         None
     } else {
         Some(title.to_owned())
     }
 }
+
 
 fn restates_number(title: &str, number: Option<f64>) -> bool {
     let Some(number) = number else { return false };
@@ -297,7 +299,7 @@ mod tests {
             .collect()
     }
 
-    fn numbers(chapters: &[Chapter]) -> Vec<Option<f32>> {
+    fn numbers(chapters: &[Chapter]) -> Vec<Option<f64>> {
         chapters.iter().map(|chapter| chapter.chapter).collect()
     }
 
@@ -650,7 +652,7 @@ mod tests {
     #[test]
     fn titles_are_kept_unless_they_only_repeat_the_number() {
         let chapters = chapters(&books(fixtures::BOOKS_NIGHT_HARBOR));
-        let title = |number: f32| {
+        let title = |number: f64| {
             chapters
                 .iter()
                 .find(|c| c.chapter == Some(number))
@@ -913,5 +915,57 @@ mod tests {
         assert!(!page.has_description);
         assert!(page.description.is_none());
         assert!(page.headers.is_none());
+    }
+    #[test]
+    fn fixture_chapters_satisfy_sdk_validation() {
+        for fixture in [
+            fixtures::BOOKS_NIGHT_HARBOR,
+            fixtures::BOOKS_VERTICAL_RAIN,
+            fixtures::BOOKS_PAPER_LANTERNS,
+            fixtures::BOOKS_IN_PROGRESS,
+            fixtures::BOOKS_ONDECK,
+        ] {
+            assert!(ito_rs::catalog::validate_chapters(&chapters(&books(fixture))).is_ok());
+        }
+    }
+
+    #[test]
+    fn sdk_out_of_range_optional_metadata_is_omitted() {
+        let book = book_json(json!({
+            "id": "B",
+            "name": "Long title",
+            "created": "2026-10-21T06:11:15Z",
+            "media": { "status": "READY", "mediaProfile": "DIVINA" },
+            "metadata": {
+                "title": "Long title",
+                "numberSort": 1.0e10,
+                "releaseDate": "9999-12-31"
+            }
+        }));
+        let chapter = chapter(&book);
+        assert_eq!(chapter.key, "B");
+        assert_eq!(chapter.title, Some("Long title".into()));
+        assert_eq!(chapter.chapter, None);
+        assert_eq!(chapter.date_updated, Some(1_792_563_075.0));
+        assert!(ito_rs::catalog::validate_chapters(&[chapter]).is_ok());
+    }
+
+    #[test]
+    fn sdk_boundary_optional_metadata_is_preserved() {
+        let title = "x".repeat(ito_rs::catalog::MAX_TITLE_BYTES);
+        let book = book_json(json!({
+            "id": "B",
+            "media": { "status": "READY", "mediaProfile": "DIVINA" },
+            "metadata": {
+                "title": title,
+                "numberSort": 1.0e9,
+                "releaseDate": "2286-11-20"
+            }
+        }));
+        let chapter = chapter(&book);
+        assert_eq!(chapter.title.as_deref(), Some(title.as_str()));
+        assert_eq!(chapter.chapter, Some(1.0e9));
+        assert_eq!(chapter.date_updated, Some(9_999_936_000.0));
+        assert!(ito_rs::catalog::validate_chapters(&[chapter]).is_ok());
     }
 }
